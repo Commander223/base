@@ -104,11 +104,11 @@ public class HistoricalMetrics
     private CpuDto getCpuDto( final List<Series> series )
     {
         CpuDto cpuDto = new CpuDto();
-        cpuDto.setSystem( SeriesHelper.getAvg( series, new Tag( "type", "system" ) ) );
-        cpuDto.setUser( SeriesHelper.getAvg( series, new Tag( "type", "user" ) ) );
-        cpuDto.setIdle( SeriesHelper.getAvg( series, new Tag( "type", "idle" ) ) );
-        cpuDto.setIowait( SeriesHelper.getAvg( series, new Tag( "type", "iowait" ) ) );
-        cpuDto.setNice( SeriesHelper.getAvg( series, new Tag( "type", "nice" ) ) );
+        cpuDto.setAvgSystem( SeriesHelper.getAvg( series, new Tag( "type", "system" ) ) );
+        cpuDto.setAvgUser( SeriesHelper.getAvg( series, new Tag( "type", "user" ) ) );
+        cpuDto.setAvgIdle( SeriesHelper.getAvg( series, new Tag( "type", "idle" ) ) );
+        cpuDto.setAvgIowait( SeriesHelper.getAvg( series, new Tag( "type", "iowait" ) ) );
+        cpuDto.setAvgNice( SeriesHelper.getAvg( series, new Tag( "type", "nice" ) ) );
 
         return cpuDto;
     }
@@ -127,38 +127,23 @@ public class HistoricalMetrics
 
 
     @JsonIgnore
-    private Map<String, DiskDto> getDiskDto( final List<Series> series )
+    private DiskDto getDiskDto( final List<Series> series )
     {
-        Map<String, DiskDto> result = new HashMap<>();
+        DiskDto dto = new DiskDto();
+        dto.setAvgAvailable(
+                SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", "/mnt" ) ) );
+        dto.setAvgTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", "/mnt" ) ) );
+        dto.setAvgUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "/mnt" ) ) );
 
-        for ( String mount : HostMetricsDto.RESOURCE_HOST_PARTITIONS )
-        {
-            DiskDto dto = new DiskDto();
-            dto.setAvailable(
-                    SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", mount ) ) );
-            dto.setTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", mount ) ) );
-            dto.setUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", mount ) ) );
-            result.put( mount, dto );
-        }
-
-        return result;
+        return dto;
     }
 
 
     @JsonIgnore
-    private Map<String, NetDto> getNetDto( final List<Series> series )
+    private NetDto getNetDto( final List<Series> series )
     {
-        Map<String, NetDto> result = new HashMap<>();
-
-        for ( String iface : HostMetricsDto.RESOURCE_HOST_INTERFACES )
-        {
-            NetDto dto = new NetDto( iface,
-                    SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "in" ) ),
-                    SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "out" ) ) );
-
-            result.put( iface, dto );
-        }
-        return result;
+        return new NetDto( "wan", SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "in" ) ),
+                SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "out" ) ) );
     }
 
 

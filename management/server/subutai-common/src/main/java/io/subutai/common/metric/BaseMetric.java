@@ -14,8 +14,10 @@ public class BaseMetric
 {
     @JsonProperty( "peerId" )
     protected String peerId;
+
     @JsonProperty( "hostInfo" )
     protected HostInfoModel hostInfo;
+
     @JsonProperty( "connected" )
     private boolean connected;
 

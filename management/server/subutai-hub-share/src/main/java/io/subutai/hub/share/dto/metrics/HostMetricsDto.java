@@ -1,50 +1,57 @@
 package io.subutai.hub.share.dto.metrics;
 
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Date;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 public class HostMetricsDto
 {
-    public static final String ROOT_PARTITION = "/";
-    public static final String MNT_PARTITION = "/mnt";
-    public static final List<String> RESOURCE_HOST_PARTITIONS =
-            Collections.unmodifiableList( Arrays.asList( ROOT_PARTITION, MNT_PARTITION ) );
-
-    public static final String WAN_INTERFACE = "wan";
-    public static final List<String> RESOURCE_HOST_INTERFACES =
-            Collections.unmodifiableList( Collections.singletonList( WAN_INTERFACE ) );
-
-
     public enum HostType
     {
         RESOURCE_HOST, CONTAINER_HOST
     }
 
 
+    public enum InstanceType
+    {
+        LOCAL, EC2
+    }
+
+
     @JsonProperty( "hostId" )
     private String hostId;
+
+    @JsonProperty( "host" )
+    protected String hostName;
 
     @JsonProperty( "type" )
     private HostType type;
 
-    @JsonProperty( "hostMemory" )
+    @JsonProperty( "RAM" )
     private MemoryDto memory = new MemoryDto();
 
-    @JsonProperty( "hostCpu" )
+    @JsonProperty( "CPU" )
     private CpuDto cpu = new CpuDto();
 
-    @JsonProperty( "hostNet" )
-    private Map<String, NetDto> net = new HashMap<>();
+    @JsonProperty( "Net" )
+    private NetDto net = new NetDto( "wan", 0, 0 );
 
-    @JsonProperty( "hostDisk" )
-    private Map<String, DiskDto> disk = new HashMap<>();
+    @JsonProperty( "Disk" )
+    private DiskDto disk = new DiskDto();
+
+    @JsonProperty( "instanceType" )
+    private InstanceType instanceType;
+
+    @JsonProperty
+    private Integer containersCount;
+
+    @JsonProperty
+    private boolean management;
+
+    @JsonProperty
+    private Date createdTime = new Date();
 
 
     public String getHostId()
@@ -56,6 +63,18 @@ public class HostMetricsDto
     public void setHostId( final String hostId )
     {
         this.hostId = hostId;
+    }
+
+
+    public String getHostName()
+    {
+        return hostName;
+    }
+
+
+    public void setHostName( final String hostName )
+    {
+        this.hostName = hostName;
     }
 
 
@@ -77,9 +96,9 @@ public class HostMetricsDto
     }
 
 
-    public void setMemory( final MemoryDto memoryDto )
+    public void setMemory( final MemoryDto memory )
     {
-        this.memory = memoryDto;
+        this.memory = memory;
     }
 
 
@@ -89,32 +108,80 @@ public class HostMetricsDto
     }
 
 
-    public void setCpu( final CpuDto cpuDto )
+    public void setCpu( final CpuDto cpu )
     {
-        this.cpu = cpuDto;
+        this.cpu = cpu;
     }
 
 
-    public Map<String, NetDto> getNet()
+    public NetDto getNet()
     {
         return net;
     }
 
 
-    public void setNet( final Map<String, NetDto> net )
+    public void setNet( final NetDto net )
     {
         this.net = net;
     }
 
 
-    public Map<String, DiskDto> getDisk()
+    public DiskDto getDisk()
     {
         return disk;
     }
 
 
-    public void setDisk( final Map<String, DiskDto> disk )
+    public void setDisk( final DiskDto disk )
     {
         this.disk = disk;
+    }
+
+
+    public InstanceType getInstanceType()
+    {
+        return instanceType;
+    }
+
+
+    public void setInstanceType( final InstanceType instanceType )
+    {
+        this.instanceType = instanceType;
+    }
+
+
+    public Integer getContainersCount()
+    {
+        return containersCount;
+    }
+
+
+    public void setContainersCount( final Integer containersCount )
+    {
+        this.containersCount = containersCount;
+    }
+
+
+    public boolean isManagement()
+    {
+        return management;
+    }
+
+
+    public void setManagement( final boolean management )
+    {
+        this.management = management;
+    }
+
+
+    public Date getCreatedTime()
+    {
+        return createdTime;
+    }
+
+
+    public void setCreatedTime( final Date createdTime )
+    {
+        this.createdTime = createdTime;
     }
 }

@@ -341,7 +341,8 @@ public class MonitorImpl implements Monitor, HostListener
     }
 
 
-    private ResourceHostMetric getResourceHostMetric( final ResourceHost resourceHost )
+    @Override
+    public ResourceHostMetric getResourceHostMetric( final ResourceHost resourceHost )
     {
         ResourceHostMetric resourceHostMetric = null;
 

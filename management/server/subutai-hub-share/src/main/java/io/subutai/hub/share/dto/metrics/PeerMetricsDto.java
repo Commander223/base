@@ -22,6 +22,9 @@ public class PeerMetricsDto
     @JsonProperty( "endTime" )
     private Long endTime;
 
+    @JsonProperty( "createdTime" )
+    private Long createdTime = System.currentTimeMillis();
+
     @JsonProperty( "metrics" )
     private Set<HostMetricsDto> metrics = new HashSet<>();
 
@@ -56,6 +59,18 @@ public class PeerMetricsDto
     public void setPeerId( final String peerId )
     {
         this.peerId = peerId;
+    }
+
+
+    public Long getCreatedTime()
+    {
+        return createdTime;
+    }
+
+
+    public void setCreatedTime( final Long createdTime )
+    {
+        this.createdTime = createdTime;
     }
 
 

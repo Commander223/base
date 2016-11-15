@@ -1,6 +1,7 @@
 package io.subutai.core.hubmanager.impl.processor;
 
 
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -13,13 +14,16 @@ import org.slf4j.LoggerFactory;
 import org.apache.cxf.jaxrs.client.WebClient;
 import org.apache.http.HttpStatus;
 
+import io.subutai.common.metric.HistoricalMetrics;
 import io.subutai.common.metric.ResourceHostMetric;
+import io.subutai.common.peer.ResourceHost;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.hubmanager.impl.ConfigManager;
 import io.subutai.core.hubmanager.impl.HubManagerImpl;
 import io.subutai.core.metric.api.Monitor;
 import io.subutai.core.peer.api.PeerManager;
-import io.subutai.hub.share.dto.ResourceHostMonitorDto;
+import io.subutai.hub.share.dto.metrics.HostMetricsDto;
+import io.subutai.hub.share.dto.metrics.PeerMetricsDto;
 import io.subutai.hub.share.json.JsonUtil;
 
 
@@ -38,7 +42,7 @@ public class ResourceHostMonitorProcessor implements Runnable
 
     private Monitor monitor;
 
-    protected ConcurrentLinkedDeque<ResourceHostMonitorDto> queue = new ConcurrentLinkedDeque<>();
+    protected ConcurrentLinkedDeque<PeerMetricsDto> queue = new ConcurrentLinkedDeque<>();
 
 
     public ResourceHostMonitorProcessor( final HubManagerImpl integration, final PeerManager peerManager,
@@ -69,86 +73,95 @@ public class ResourceHostMonitorProcessor implements Runnable
     {
         if ( manager.isRegistered() )
         {
-            for ( ResourceHostMetric resourceHostMetric : monitor.getResourceHostMetrics().getResources() )
+            Calendar cal = Calendar.getInstance();
+            Date endTime = cal.getTime();
+            cal.add( Calendar.MINUTE, -15 );
+            Date startTime = cal.getTime();
+            PeerMetricsDto peerMetricsDto =
+                    new PeerMetricsDto( peerManager.getLocalPeer().getId(), startTime.getTime(), endTime.getTime() );
+            for ( ResourceHost host : peerManager.getLocalPeer().getResourceHosts() )
             {
-                ResourceHostMonitorDto resourceHostMonitorDto = new ResourceHostMonitorDto();
+                ResourceHostMetric resourceHostMetric = monitor.getResourceHostMetric( host );
+                final HistoricalMetrics historicalMetrics = monitor.getMetricsSeries( host, startTime, endTime );
+                final HostMetricsDto hostMetrics = historicalMetrics.getHostMetrics();
 
-                resourceHostMonitorDto.setPeerId( peerManager.getLocalPeer().getId() );
-                resourceHostMonitorDto.setName( resourceHostMetric.getHostInfo().getHostname() );
-                resourceHostMonitorDto.setHostId( resourceHostMetric.getHostInfo().getId() );
+                hostMetrics.setHostName( resourceHostMetric.getHostInfo().getHostname() );
+                hostMetrics.setHostId( resourceHostMetric.getHostInfo().getId() );
 
                 try
                 {
-                    resourceHostMonitorDto.setAvailableRam( resourceHostMetric.getAvailableRam() );
+                    hostMetrics.getMemory().setTotal( resourceHostMetric.getTotalRam() );
                 }
                 catch ( Exception e )
                 {
-                    resourceHostMonitorDto.setAvailableRam( 0.0 );
+                    hostMetrics.getMemory().setTotal( 0.0 );
+                    log.info( e.getMessage(), "No info about total RAM" );
+                }
+
+                try
+                {
+                    hostMetrics.getMemory().setFree( resourceHostMetric.getAvailableRam() );
+                }
+                catch ( Exception e )
+                {
+                    hostMetrics.getMemory().setFree( 0.0 );
                     log.info( e.getMessage(), "No info about available RAM" );
                 }
 
                 try
                 {
-                    resourceHostMonitorDto.setAvailableSpace( resourceHostMetric.getAvailableSpace() );
+                    hostMetrics.getDisk().setTotal( resourceHostMetric.getTotalSpace() );
                 }
                 catch ( Exception e )
                 {
-                    resourceHostMonitorDto.setAvailableSpace( 0.0 );
-                    log.info( e.getMessage(), "No info about available Space" );
-                }
-
-                try
-                {
-                    resourceHostMonitorDto.setTotalRam( resourceHostMetric.getTotalRam() );
-                }
-                catch ( Exception e )
-                {
-                    resourceHostMonitorDto.setTotalRam( 0.0 );
-                    log.info( e.getMessage(), "No info about total RAM" );
-                }
-                try
-                {
-                    resourceHostMonitorDto.setTotalSpace( resourceHostMetric.getTotalSpace() );
-                }
-                catch ( Exception e )
-                {
-                    resourceHostMonitorDto.setTotalSpace( 0.0 );
+                    hostMetrics.getDisk().setTotal( 0.0 );
                     log.info( e.getMessage(), "No info about total Space" );
                 }
+
                 try
                 {
-                    resourceHostMonitorDto.setUsedCpu( resourceHostMetric.getUsedCpu() );
+                    hostMetrics.getDisk().setUsed( resourceHostMetric.getUsedSpace() );
                 }
                 catch ( Exception e )
                 {
-                    resourceHostMonitorDto.setUsedCpu( 0.0 );
-                    log.info( e.getMessage(), "No info about used CPU" );
+                    hostMetrics.getDisk().setUsed( 0.0 );
+                    log.info( e.getMessage(), "No info about used Space" );
                 }
 
-                queue( resourceHostMonitorDto );
-                send();
+
+                try
+                {
+                    hostMetrics.getCpu().setIdle( resourceHostMetric.getCpuIdle() );
+                }
+                catch ( Exception e )
+                {
+                    hostMetrics.getCpu().setIdle( 0.0 );
+                    log.info( e.getMessage(), "No info about used CPU" );
+                }
+                peerMetricsDto.addHostMetrics( hostMetrics );
             }
+            queue( peerMetricsDto );
         }
+        send();
     }
 
 
-    private boolean queue( final ResourceHostMonitorDto resourceHostMonitorDto )
+    private boolean queue( final PeerMetricsDto peerMetricsDto )
     {
-        return queue.offer( resourceHostMonitorDto );
+        return queue.offer( peerMetricsDto );
     }
 
 
     private void send()
     {
-        log.debug( "RH monitor queue size = {}", queue.size() );
-        final Iterator<ResourceHostMonitorDto> iterator = queue.iterator();
+        log.debug( "Peer monitor queue size = {}", queue.size() );
+        final Iterator<PeerMetricsDto> iterator = queue.iterator();
 
         while ( iterator.hasNext() )
         {
-            ResourceHostMonitorDto dto = iterator.next();
+            PeerMetricsDto dto = iterator.next();
 
-            String path = String.format( "/rest/v1/peers/%s/resource-hosts/%s/monitor", configManager.getPeerId(),
-                    dto.getHostId() );
+            String path = String.format( "/rest/v1/peers/%s/monitor", configManager.getPeerId() );
             try
             {
                 WebClient client = configManager.getTrustedWebClientWithAuth( path, configManager.getHubIp() );
@@ -162,28 +175,28 @@ public class ResourceHostMonitorProcessor implements Runnable
                 if ( r.getStatus() == HttpStatus.SC_NO_CONTENT )
                 {
                     iterator.remove();
-                    log.debug( "Resource hosts monitoring data sent successfully. {}", dto );
+                    log.debug( "Peer monitoring data sent successfully. {}", dto );
                 }
                 else
                 {
-                    log.warn( "Could not send RH monitoring data: " + r.readEntity( String.class ) );
+                    log.warn( "Could not send peer monitoring data: " + r.readEntity( String.class ) );
                 }
             }
             catch ( Exception e )
             {
-                log.warn( "Could not send RH monitoring data to {}", dto.getPeerId(), e );
+                log.warn( "Could not send peer monitoring data to {}", dto.getPeerId(), e );
             }
         }
 
         // clean up queue to avoid memory exhaustion
-        Iterator<ResourceHostMonitorDto> i = queue.iterator();
+        Iterator<PeerMetricsDto> i = queue.iterator();
 
         while ( i.hasNext() )
         {
-            ResourceHostMonitorDto dto = iterator.next();
-            if ( dto.getCreated().getTime() + DTO_TTL < new Date().getTime() )
+            PeerMetricsDto dto = iterator.next();
+            if ( dto.getCreatedTime() + DTO_TTL < System.currentTimeMillis() )
             {
-                log.warn( "Removing RH monitoring data {}", dto );
+                log.warn( "Removing peer monitoring data {}", dto );
                 iterator.remove();
             }
         }

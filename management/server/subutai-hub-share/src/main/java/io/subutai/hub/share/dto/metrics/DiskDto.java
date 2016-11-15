@@ -1,13 +1,27 @@
 package io.subutai.hub.share.dto.metrics;
 
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+
+@JsonIgnoreProperties( ignoreUnknown = true )
 public class DiskDto
 {
-    private double total = 0.0D;
+    @JsonProperty( "total" )
+    private double total = 0.0;
 
-    private double available = 0.0D;
+    @JsonProperty( "used" )
+    private double used = 0.0;
 
-    private double used = 0.0D;
+    @JsonProperty( "aTotal" )
+    private double avgTotal = 0.0D;
+
+    @JsonProperty( "aAvailable" )
+    private double avgAvailable = 0.0D;
+
+    @JsonProperty( "aUsed" )
+    private double avgUsed = 0.0D;
 
 
     public double getTotal()
@@ -22,18 +36,6 @@ public class DiskDto
     }
 
 
-    public double getAvailable()
-    {
-        return available;
-    }
-
-
-    public void setAvailable( final double available )
-    {
-        this.available = available;
-    }
-
-
     public double getUsed()
     {
         return used;
@@ -43,5 +45,41 @@ public class DiskDto
     public void setUsed( final double used )
     {
         this.used = used;
+    }
+
+
+    public double getAvgTotal()
+    {
+        return avgTotal;
+    }
+
+
+    public void setAvgTotal( final double avgTotal )
+    {
+        this.avgTotal = avgTotal;
+    }
+
+
+    public double getAvgAvailable()
+    {
+        return avgAvailable;
+    }
+
+
+    public void setAvgAvailable( final double avgAvailable )
+    {
+        this.avgAvailable = avgAvailable;
+    }
+
+
+    public double getAvgUsed()
+    {
+        return avgUsed;
+    }
+
+
+    public void setAvgUsed( final double avgUsed )
+    {
+        this.avgUsed = avgUsed;
     }
 }

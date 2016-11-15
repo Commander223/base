@@ -73,11 +73,11 @@ public class HistoricalMetricsTest
 
         assertNotNull( cpuDto );
 
-        assertEquals( 0.9345833333, cpuDto.getSystem(), 0.0001 );
-        assertEquals( 3.005, cpuDto.getUser(), 0.0001 );
-        assertEquals( 0.0, cpuDto.getNice(), 0.0001 );
-        assertEquals( 95.26708333333335, cpuDto.getIdle(), 0.0001 );
-        assertEquals( 0.04125000000000002, cpuDto.getIowait(), 0.0001 );
+        assertEquals( 0.9345833333, cpuDto.getAvgSystem(), 0.0001 );
+        assertEquals( 3.005, cpuDto.getAvgUser(), 0.0001 );
+        assertEquals( 0.0, cpuDto.getAvgNice(), 0.0001 );
+        assertEquals( 95.26708333333335, cpuDto.getAvgIdle(), 0.0001 );
+        assertEquals( 0.04125000000000002, cpuDto.getAvgIowait(), 0.0001 );
     }
 
 
@@ -102,21 +102,16 @@ public class HistoricalMetricsTest
     {
         final HostMetricsDto metrics = rhMetrics.getHostMetrics();
 
-        Map<String, DiskDto> disk = metrics.getDisk();
+        DiskDto disk = metrics.getDisk();
 
-        assertNotNull( disk );
-        assertEquals( 2, disk.keySet().size() );
+        // mnt partition
+        double available = disk.getAvgAvailable();
+        assertEquals( 1.0129919970742857E11, available, 0.0001 );
+        double total = disk.getAvgTotal();
+        assertEquals( 1.073741824E11, total, 0.0001 );
+        double used = disk.getAvgUsed();
+        assertEquals( 5.519773403428572E9, used, 0.0001 );
 
-        // root partition
-        DiskDto root = disk.get( "/" );
-        double available = root.getAvailable();
-        assertEquals( 3.00056576E8, available, 0.0001 );
-        double total = root.getTotal();
-        assertEquals( 1.02330368E9, total, 0.0001 );
-        double used = root.getUsed();
-        assertEquals( 6.52783616E8, used, 0.0001 );
-
-        // TODO: 10/29/16 why total <> available + used
         //        assertEquals( total, available+used,0.001 );
     }
 }

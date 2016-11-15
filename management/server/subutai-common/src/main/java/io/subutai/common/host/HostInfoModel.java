@@ -13,12 +13,15 @@ public class HostInfoModel implements HostInfo
     @SerializedName( "id" )
     @JsonProperty( "id" )
     protected String id;
+
     @SerializedName( "hostname" )
     @JsonProperty( "hostname" )
     protected String hostname;
+
     @SerializedName( "interfaces" )
     @JsonProperty( "interfaces" )
     protected Set<HostInterfaceModel> hostInterfaces = new HashSet<>();
+
     @SerializedName( "arch" )
     @JsonProperty( "arch" )
     protected HostArchitecture hostArchitecture;

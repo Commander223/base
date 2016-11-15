@@ -111,12 +111,12 @@ public class ResourceHostDataProcessor implements Runnable, HostListener
 
             if ( sendMetrics )
             {
-                processPeerMetrics();
+//                processPeerMetrics();
             }
         }
     }
 
-
+    @Deprecated
     private void processPeerMetrics()
     {
         Calendar cal = Calendar.getInstance();
