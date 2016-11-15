@@ -133,4 +133,18 @@ public class PeerMetricsDto
         }
         return null;
     }
+
+
+    @Override
+    public String toString()
+    {
+        final StringBuffer sb = new StringBuffer( "PeerMetricsDto{" );
+        sb.append( "peerId='" ).append( peerId ).append( '\'' );
+        sb.append( ", startTime=" ).append( startTime );
+        sb.append( ", endTime=" ).append( endTime );
+        sb.append( ", createdTime=" ).append( createdTime );
+        sb.append( ", metrics=" ).append( metrics );
+        sb.append( '}' );
+        return sb.toString();
+    }
 }

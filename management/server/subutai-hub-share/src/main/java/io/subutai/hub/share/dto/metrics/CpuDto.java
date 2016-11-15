@@ -142,4 +142,22 @@ public class CpuDto
     {
         this.avgNice = avgNice;
     }
+
+
+    @Override
+    public String toString()
+    {
+        final StringBuffer sb = new StringBuffer( "CpuDto{" );
+        sb.append( "model='" ).append( model ).append( '\'' );
+        sb.append( ", idle=" ).append( idle );
+        sb.append( ", coreCount=" ).append( coreCount );
+        sb.append( ", frequency=" ).append( frequency );
+        sb.append( ", avgSystem=" ).append( avgSystem );
+        sb.append( ", avgIdle=" ).append( avgIdle );
+        sb.append( ", avgIowait=" ).append( avgIowait );
+        sb.append( ", avgUser=" ).append( avgUser );
+        sb.append( ", avgNice=" ).append( avgNice );
+        sb.append( '}' );
+        return sb.toString();
+    }
 }

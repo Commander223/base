@@ -87,6 +87,8 @@ public class ResourceHostMonitorProcessor implements Runnable
 
                 hostMetrics.setHostName( resourceHostMetric.getHostInfo().getHostname() );
                 hostMetrics.setHostId( resourceHostMetric.getHostInfo().getId() );
+                hostMetrics.setContainersCount( resourceHostMetric.getContainersCount() );
+                hostMetrics.setManagement( host.isManagementHost() );
 
                 try
                 {
@@ -132,6 +134,9 @@ public class ResourceHostMonitorProcessor implements Runnable
                 try
                 {
                     hostMetrics.getCpu().setIdle( resourceHostMetric.getCpuIdle() );
+                    hostMetrics.getCpu().setModel( resourceHostMetric.getCpuModel() );
+                    hostMetrics.getCpu().setCoreCount( resourceHostMetric.getCpuCore() );
+                    hostMetrics.getCpu().setFrequency( resourceHostMetric.getCpuFrequency() );
                 }
                 catch ( Exception e )
                 {

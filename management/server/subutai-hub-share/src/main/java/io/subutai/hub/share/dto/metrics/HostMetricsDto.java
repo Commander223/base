@@ -14,12 +14,6 @@ public class HostMetricsDto
     }
 
 
-    public enum InstanceType
-    {
-        LOCAL, EC2
-    }
-
-
     @JsonProperty( "hostId" )
     private String hostId;
 
@@ -40,9 +34,6 @@ public class HostMetricsDto
 
     @JsonProperty( "Disk" )
     private DiskDto disk = new DiskDto();
-
-    @JsonProperty( "instanceType" )
-    private InstanceType instanceType;
 
     @JsonProperty
     private Integer containersCount;
@@ -138,18 +129,6 @@ public class HostMetricsDto
     }
 
 
-    public InstanceType getInstanceType()
-    {
-        return instanceType;
-    }
-
-
-    public void setInstanceType( final InstanceType instanceType )
-    {
-        this.instanceType = instanceType;
-    }
-
-
     public Integer getContainersCount()
     {
         return containersCount;
@@ -183,5 +162,24 @@ public class HostMetricsDto
     public void setCreatedTime( final Date createdTime )
     {
         this.createdTime = createdTime;
+    }
+
+
+    @Override
+    public String toString()
+    {
+        final StringBuffer sb = new StringBuffer( "HostMetricsDto{" );
+        sb.append( "hostId='" ).append( hostId ).append( '\'' );
+        sb.append( ", hostName='" ).append( hostName ).append( '\'' );
+        sb.append( ", type=" ).append( type );
+        sb.append( ", memory=" ).append( memory );
+        sb.append( ", cpu=" ).append( cpu );
+        sb.append( ", net=" ).append( net );
+        sb.append( ", disk=" ).append( disk );
+        sb.append( ", containersCount=" ).append( containersCount );
+        sb.append( ", management=" ).append( management );
+        sb.append( ", createdTime=" ).append( createdTime );
+        sb.append( '}' );
+        return sb.toString();
     }
 }

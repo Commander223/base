@@ -82,4 +82,18 @@ public class DiskDto
     {
         this.avgUsed = avgUsed;
     }
+
+
+    @Override
+    public String toString()
+    {
+        final StringBuffer sb = new StringBuffer( "DiskDto{" );
+        sb.append( "total=" ).append( total );
+        sb.append( ", used=" ).append( used );
+        sb.append( ", avgTotal=" ).append( avgTotal );
+        sb.append( ", avgAvailable=" ).append( avgAvailable );
+        sb.append( ", avgUsed=" ).append( avgUsed );
+        sb.append( '}' );
+        return sb.toString();
+    }
 }
