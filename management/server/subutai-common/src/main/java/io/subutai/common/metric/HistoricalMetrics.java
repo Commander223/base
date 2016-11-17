@@ -118,10 +118,10 @@ public class HistoricalMetrics
     private MemoryDto getMemoryDto( final List<Series> series )
     {
         MemoryDto memoryDto = new MemoryDto();
-        memoryDto.setActive( SeriesHelper.getAvg( series, new Tag( "type", "active" ) ) );
-        memoryDto.setBuffers( SeriesHelper.getAvg( series, new Tag( "type", "buffers" ) ) );
-        memoryDto.setCached( SeriesHelper.getAvg( series, new Tag( "type", "cached" ) ) );
-        memoryDto.setMemFree( SeriesHelper.getAvg( series, new Tag( "type", "memfree" ) ) );
+        memoryDto.setAvgActive( SeriesHelper.getAvg( series, new Tag( "type", "active" ) ) );
+        memoryDto.setAvgBuffers( SeriesHelper.getAvg( series, new Tag( "type", "buffers" ) ) );
+        memoryDto.setAvgCached( SeriesHelper.getAvg( series, new Tag( "type", "cached" ) ) );
+        memoryDto.setAvgMemFree( SeriesHelper.getAvg( series, new Tag( "type", "memfree" ) ) );
         return memoryDto;
     }
 
@@ -130,10 +130,10 @@ public class HistoricalMetrics
     private DiskDto getDiskDto( final List<Series> series )
     {
         DiskDto dto = new DiskDto();
-        dto.setAvgAvailable(
-                SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", "/mnt" ) ) );
-        dto.setAvgTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", "/mnt" ) ) );
-        dto.setAvgUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "/mnt" ) ) );
+//        dto.setAvgAvailable(
+//                SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", "/mnt" ) ) );
+//        dto.setAvgTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", "/mnt" ) ) );
+//        dto.setAvgUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "/mnt" ) ) );
 
         return dto;
     }

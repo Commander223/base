@@ -15,16 +15,16 @@ public class MemoryDto
     private Double free;
 
     @JsonProperty( "active" )
-    private double active = 0.0D;
+    private double avgActive = 0.0D;
 
     @JsonProperty( "cached" )
-    private double cached = 0.0D;
+    private double avgCached = 0.0D;
 
     @JsonProperty( "memFree" )
-    private double memFree = 0.0D;
+    private double avgMemFree = 0.0D;
 
     @JsonProperty( "buffers" )
-    private double buffers = 0.0D;
+    private double avgBuffers = 0.0D;
 
 
     public Double getTotal()
@@ -51,51 +51,51 @@ public class MemoryDto
     }
 
 
-    public double getActive()
+    public double getAvgActive()
     {
-        return active;
+        return avgActive;
     }
 
 
-    public void setActive( final double active )
+    public void setAvgActive( final double avgActive )
     {
-        this.active = active;
+        this.avgActive = avgActive;
     }
 
 
-    public double getCached()
+    public double getAvgCached()
     {
-        return cached;
+        return avgCached;
     }
 
 
-    public void setCached( final double cached )
+    public void setAvgCached( final double avgCached )
     {
-        this.cached = cached;
+        this.avgCached = avgCached;
     }
 
 
-    public double getMemFree()
+    public double getAvgMemFree()
     {
-        return memFree;
+        return avgMemFree;
     }
 
 
-    public void setMemFree( final double memFree )
+    public void setAvgMemFree( final double avgMemFree )
     {
-        this.memFree = memFree;
+        this.avgMemFree = avgMemFree;
     }
 
 
-    public double getBuffers()
+    public double getAvgBuffers()
     {
-        return buffers;
+        return avgBuffers;
     }
 
 
-    public void setBuffers( final double buffers )
+    public void setAvgBuffers( final double avgBuffers )
     {
-        this.buffers = buffers;
+        this.avgBuffers = avgBuffers;
     }
 
 
@@ -105,10 +105,10 @@ public class MemoryDto
         final StringBuffer sb = new StringBuffer( "MemoryDto{" );
         sb.append( "total=" ).append( total );
         sb.append( ", free=" ).append( free );
-        sb.append( ", active=" ).append( active );
-        sb.append( ", cached=" ).append( cached );
-        sb.append( ", memFree=" ).append( memFree );
-        sb.append( ", buffers=" ).append( buffers );
+        sb.append( ", avgActive=" ).append( avgActive );
+        sb.append( ", avgCached=" ).append( avgCached );
+        sb.append( ", avgMemFree=" ).append( avgMemFree );
+        sb.append( ", avgBuffers=" ).append( avgBuffers );
         sb.append( '}' );
         return sb.toString();
     }

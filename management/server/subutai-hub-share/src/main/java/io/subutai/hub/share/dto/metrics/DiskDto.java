@@ -14,14 +14,14 @@ public class DiskDto
     @JsonProperty( "used" )
     private double used = 0.0;
 
-    @JsonProperty( "aTotal" )
-    private double avgTotal = 0.0D;
-
-    @JsonProperty( "aAvailable" )
-    private double avgAvailable = 0.0D;
-
-    @JsonProperty( "aUsed" )
-    private double avgUsed = 0.0D;
+//    @JsonProperty( "aTotal" )
+//    private double avgTotal = 0.0D;
+//
+//    @JsonProperty( "aAvailable" )
+//    private double avgAvailable = 0.0D;
+//
+//    @JsonProperty( "aUsed" )
+//    private double avgUsed = 0.0D;
 
 
     public double getTotal()
@@ -48,40 +48,40 @@ public class DiskDto
     }
 
 
-    public double getAvgTotal()
-    {
-        return avgTotal;
-    }
-
-
-    public void setAvgTotal( final double avgTotal )
-    {
-        this.avgTotal = avgTotal;
-    }
-
-
-    public double getAvgAvailable()
-    {
-        return avgAvailable;
-    }
-
-
-    public void setAvgAvailable( final double avgAvailable )
-    {
-        this.avgAvailable = avgAvailable;
-    }
-
-
-    public double getAvgUsed()
-    {
-        return avgUsed;
-    }
-
-
-    public void setAvgUsed( final double avgUsed )
-    {
-        this.avgUsed = avgUsed;
-    }
+//    public double getAvgTotal()
+//    {
+//        return avgTotal;
+//    }
+//
+//
+//    public void setAvgTotal( final double avgTotal )
+//    {
+//        this.avgTotal = avgTotal;
+//    }
+//
+//
+//    public double getAvgAvailable()
+//    {
+//        return avgAvailable;
+//    }
+//
+//
+//    public void setAvgAvailable( final double avgAvailable )
+//    {
+//        this.avgAvailable = avgAvailable;
+//    }
+//
+//
+//    public double getAvgUsed()
+//    {
+//        return avgUsed;
+//    }
+//
+//
+//    public void setAvgUsed( final double avgUsed )
+//    {
+//        this.avgUsed = avgUsed;
+//    }
 
 
     @Override
@@ -90,9 +90,9 @@ public class DiskDto
         final StringBuffer sb = new StringBuffer( "DiskDto{" );
         sb.append( "total=" ).append( total );
         sb.append( ", used=" ).append( used );
-        sb.append( ", avgTotal=" ).append( avgTotal );
-        sb.append( ", avgAvailable=" ).append( avgAvailable );
-        sb.append( ", avgUsed=" ).append( avgUsed );
+//        sb.append( ", avgTotal=" ).append( avgTotal );
+//        sb.append( ", avgAvailable=" ).append( avgAvailable );
+//        sb.append( ", avgUsed=" ).append( avgUsed );
         sb.append( '}' );
         return sb.toString();
     }
