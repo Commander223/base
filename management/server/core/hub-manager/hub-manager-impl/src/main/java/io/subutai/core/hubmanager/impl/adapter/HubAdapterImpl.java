@@ -19,6 +19,7 @@ import io.subutai.common.dao.DaoManager;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.peer.EnvironmentContainerHost;
 import io.subutai.core.environment.api.EnvironmentEventListener;
+import io.subutai.core.hubmanager.api.HubManager;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
@@ -89,13 +90,13 @@ public class HubAdapterImpl implements HubAdapter, EnvironmentEventListener
         log.debug( "Active user: username={}, email={}", user.getUserName(), user.getEmail() );
 
         // For the admin, get peer owner data from Hub
-        if ( "admin".equals( user.getUserName() ) )
+        if ( IdentityManager.ADMIN_USERNAME.equals( user.getUserName() ) )
         {
             return getOwnerId();
         }
 
         // Trick to get the user id in Hub. See also: EnvironmentUserHelper.
-        if ( user.getEmail().contains( "@hub.subut.ai" ) )
+        if ( user.getEmail().contains( HubManager.HUB_EMAIL_SUFFIX ) )
         {
             return StringUtils.substringBefore( user.getEmail(), "@" );
         }
@@ -138,6 +139,12 @@ public class HubAdapterImpl implements HubAdapter, EnvironmentEventListener
     {
         String userId = getUserIdWithCheck();
 
+        // in case user is tenant manager we pass 0 as user id to Hub
+        if ( userId == null && identityManager.isTenantManager() && isRegistered() )
+        {
+            userId = "0";
+        }
+
         if ( userId != null )
         {
             String path = format( ENVIRONMENTS_URL, getUserId() ) + "/" + envId;
@@ -177,6 +184,13 @@ public class HubAdapterImpl implements HubAdapter, EnvironmentEventListener
         }
 
         return null;
+    }
+
+
+    @Override
+    public String getAllEnvironmentsForPeer()
+    {
+        return httpClient.doGet( format( ENVIRONMENTS_URL, 0 ) );
     }
 
 
