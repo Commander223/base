@@ -40,6 +40,7 @@ import io.subutai.common.exception.DaoException;
 import io.subutai.common.host.ResourceHostInfo;
 import io.subutai.common.host.ResourceHostInfoModel;
 import io.subutai.common.metric.Alert;
+import io.subutai.common.metric.HistoricalMetrics;
 import io.subutai.common.metric.ProcessResourceUsage;
 import io.subutai.common.metric.QuotaAlert;
 import io.subutai.common.metric.QuotaAlertValue;
@@ -64,7 +65,6 @@ import io.subutai.core.metric.api.MonitorException;
 import io.subutai.core.metric.api.pojo.P2Pinfo;
 import io.subutai.core.metric.impl.pojo.P2PInfoPojo;
 import io.subutai.core.peer.api.PeerManager;
-import io.subutai.common.metric.HistoricalMetrics;
 
 
 /**
@@ -621,7 +621,7 @@ public class MonitorImpl implements Monitor, HostListener
     @Override
     public HistoricalMetrics getMetricsSeries( final Host host, Date startTime, Date endTime )
     {
-        HistoricalMetrics result = new HistoricalMetrics();
+        HistoricalMetrics result = new HistoricalMetrics( startTime, endTime );
 
         try
         {
@@ -631,6 +631,8 @@ public class MonitorImpl implements Monitor, HostListener
             if ( null != commandResult && commandResult.hasSucceeded() )
             {
                 result = mapper.readValue( commandResult.getStdOut(), HistoricalMetrics.class );
+                result.setStartTime( startTime );
+                result.setEndTime( endTime );
             }
             else
             {

@@ -2,12 +2,14 @@ package io.subutai.common.metric;
 
 
 import java.io.IOException;
+import java.util.Date;
 import java.util.Map;
 
 import org.junit.Before;
 import org.junit.Test;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang.time.DateFormatUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -34,6 +36,8 @@ public class HistoricalMetricsTest
         final String rhJson = IOUtils.toString( HistoricalMetricsTest.class.getClassLoader().getResourceAsStream(
                 "metrics/resource_host_metrics.json" ), "UTF-8" );
         rhMetrics = objectMapper.readValue( rhJson, HistoricalMetrics.class );
+        rhMetrics.setStartTime( new Date() );
+        rhMetrics.setEndTime( new Date() );
         final String chJson = IOUtils.toString( HistoricalMetricsTest.class.getClassLoader().getResourceAsStream(
                 "metrics/container_host_metrics.json" ), "UTF-8" );
         chMetrics = objectMapper.readValue( chJson, HistoricalMetrics.class );
@@ -105,12 +109,12 @@ public class HistoricalMetricsTest
         DiskDto disk = metrics.getDisk();
 
         // mnt partition
-//        double available = disk.getAvgAvailable();
-//        assertEquals( 1.0129919970742857E11, available, 0.0001 );
-//        double total = disk.getAvgTotal();
-//        assertEquals( 1.073741824E11, total, 0.0001 );
-//        double used = disk.getAvgUsed();
-//        assertEquals( 5.519773403428572E9, used, 0.0001 );
+        //        double available = disk.getAvgAvailable();
+        //        assertEquals( 1.0129919970742857E11, available, 0.0001 );
+        //        double total = disk.getAvgTotal();
+        //        assertEquals( 1.073741824E11, total, 0.0001 );
+        //        double used = disk.getAvgUsed();
+        //        assertEquals( 5.519773403428572E9, used, 0.0001 );
 
         //        assertEquals( total, available+used,0.001 );
     }

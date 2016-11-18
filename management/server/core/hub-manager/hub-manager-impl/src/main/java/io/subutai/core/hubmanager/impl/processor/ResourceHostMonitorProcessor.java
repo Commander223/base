@@ -64,7 +64,8 @@ public class ResourceHostMonitorProcessor implements Runnable
         }
         catch ( Exception e )
         {
-            log.error( "Sending resource hosts monitoring data failed.", e.getMessage() );
+            log.error( e.getMessage(), e );
+            log.error( "Sending peer metrics data failed.", e.getMessage() );
         }
     }
 

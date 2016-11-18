@@ -2,11 +2,13 @@ package io.subutai.common.metric;
 
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.subutai.hub.share.dto.metrics.CpuDto;
@@ -19,11 +21,17 @@ import io.subutai.hub.share.dto.metrics.NetDto;
 /**
  * Historical metrics
  */
+@JsonIgnoreProperties( ignoreUnknown = true )
 public class HistoricalMetrics
 {
+    @JsonProperty( "startTime" )
+    private Date startTime;
+
+    @JsonProperty( "endTime" )
+    private Date endTime;
 
     @JsonProperty( "Metrics" )
-    List<SeriesBatch> metrics = new ArrayList<>();
+    private List<SeriesBatch> metrics = new ArrayList<>();
     private Map<SeriesBatch.SeriesType, List<Series>> seriesMap = new HashMap<>();
 
 
@@ -32,9 +40,44 @@ public class HistoricalMetrics
     }
 
 
-    public HistoricalMetrics( @JsonProperty( "Metrics" ) final List<SeriesBatch> metrics )
+    public HistoricalMetrics( @JsonProperty( "startTime" ) final Date startTime,
+                              @JsonProperty( "endTime" ) final Date endTime,
+                              @JsonProperty( "Metrics" ) final List<SeriesBatch> metrics )
     {
+        this.startTime = startTime;
+        this.endTime = endTime;
         this.metrics = metrics;
+    }
+
+
+    public HistoricalMetrics( final Date startTime, final Date endTime )
+    {
+        this.startTime = startTime;
+        this.endTime = endTime;
+    }
+
+
+    public Date getStartTime()
+    {
+        return startTime;
+    }
+
+
+    public void setStartTime( final Date startTime )
+    {
+        this.startTime = startTime;
+    }
+
+
+    public Date getEndTime()
+    {
+        return endTime;
+    }
+
+
+    public void setEndTime( final Date endTime )
+    {
+        this.endTime = endTime;
     }
 
 
@@ -130,10 +173,12 @@ public class HistoricalMetrics
     private DiskDto getDiskDto( final List<Series> series )
     {
         DiskDto dto = new DiskDto();
-//        dto.setAvgAvailable(
-//                SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", "/mnt" ) ) );
-//        dto.setAvgTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", "/mnt" ) ) );
-//        dto.setAvgUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "/mnt" ) ) );
+        //        dto.setAvgAvailable(
+        //                SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", "/mnt" ) ) );
+        //        dto.setAvgTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", "/mnt"
+        // ) ) );
+        //        dto.setAvgUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "/mnt" )
+        // ) );
 
         return dto;
     }
@@ -142,8 +187,10 @@ public class HistoricalMetrics
     @JsonIgnore
     private NetDto getNetDto( final List<Series> series )
     {
-        return new NetDto( "wan", SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "in" ) ),
-                SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "out" ) ) );
+        double avgIn = SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "in" ) );
+        double avgOut = SeriesHelper.getAvg( series, new Tag( "iface", "wan" ), new Tag( "type", "out" ) );
+        long timeInterval = ( endTime.getTime() - startTime.getTime() ) / 1000;
+        return new NetDto( "wan", avgIn / timeInterval / 1024, avgOut / timeInterval / 1024 );
     }
 
 
