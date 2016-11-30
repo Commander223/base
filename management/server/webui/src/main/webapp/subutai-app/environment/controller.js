@@ -536,10 +536,12 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 		var file = fileUploader;
 		LOADING_SCREEN();
 		environmentService.setDomain(domain, vm.environmentForDomain, file).success(function (data) {
+			fileUploader = {};
 			SweetAlert.swal("Success!", "You have successfully added domain for " + vm.environmentForDomain + " environment!", "success");
 			ngDialog.closeAll();
 			LOADING_SCREEN('none');
 		}).error(function (data) {
+			fileUploader = {};
 			SweetAlert.swal("Cancelled", "Error: " + data.ERROR, "error");
 			ngDialog.closeAll();
 			LOADING_SCREEN('none');

@@ -1145,13 +1145,10 @@ public class IdentityManagerImpl implements IdentityManager
     {
         try
         {
-            RelationManager relationManager = ServiceLocator.getServiceNoCache( RelationManager.class );
-            if ( relationManager != null )
-            {
-                User activeUser = getActiveUser();
-                UserDelegate delegatedUser = getUserDelegate( activeUser.getId() );
-                relationManager.processTrustMessage( trustMessage, delegatedUser.getId() );
-            }
+            RelationManager relationManager = ServiceLocator.lookup( RelationManager.class );
+            User activeUser = getActiveUser();
+            UserDelegate delegatedUser = getUserDelegate( activeUser.getId() );
+            relationManager.processTrustMessage( trustMessage, delegatedUser.getId() );
         }
         catch ( RelationVerificationException e )
         {
@@ -1167,7 +1164,7 @@ public class IdentityManagerImpl implements IdentityManager
     {
         try
         {
-            RelationManager relationManager = ServiceLocator.getServiceNoCache( RelationManager.class );
+            RelationManager relationManager = ServiceLocator.lookup( RelationManager.class );
             KeyManager keyManager = securityManager.getKeyManager();
             EncryptionTool encryptionTool = securityManager.getEncryptionTool();
 
@@ -1570,9 +1567,16 @@ public class IdentityManagerImpl implements IdentityManager
     @Override
     public boolean isAdmin()
     {
-        for ( Role role : getActiveUser().getRoles() )
+        User user = getActiveUser();
+
+        if ( user == null )
         {
-            if ( ADMIN_ROLE.equals( role.getName() ) )
+            return false;
+        }
+
+        for ( Role role : user.getRoles() )
+        {
+            if ( ADMIN_ROLE.equalsIgnoreCase( role.getName() ) )
             {
                 return true;
             }
@@ -1589,6 +1593,10 @@ public class IdentityManagerImpl implements IdentityManager
     public boolean isUserPermitted( User user, PermissionObject permObj, PermissionScope permScope,
                                     PermissionOperation permOp )
     {
+        if ( user == null )
+        {
+            return false;
+        }
 
         List<Role> roles = user.getRoles();
 

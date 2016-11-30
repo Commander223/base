@@ -48,17 +48,17 @@ public class ResourceHostDataProcessor implements Runnable, HostListener
 {
     private final Logger log = LoggerFactory.getLogger( getClass() );
 
-    private static HubManagerImpl hubManager;
+    private HubManagerImpl hubManager;
 
-    private static LocalPeer localPeer;
+    private LocalPeer localPeer;
 
-    private static HubRestClient restClient;
+    private HubRestClient restClient;
 
-    private static Monitor monitor;
+    private Monitor monitor;
 
     private Date p2pLogsEndDate;
 
-    private static Set<HostInterfaceDto> interfaces = new HashSet<>();
+    private Set<HostInterfaceDto> interfaces = new HashSet<>();
 
     private ObjectMapper objectMapper = new ObjectMapper();
 
@@ -71,12 +71,6 @@ public class ResourceHostDataProcessor implements Runnable, HostListener
         this.monitor = monitor;
 
         this.restClient = restClient;
-    }
-
-
-    public ResourceHostDataProcessor()
-    {
-
     }
 
 

@@ -158,6 +158,7 @@ import io.subutai.hub.share.resource.RamResource;
  *
  * TODO externalize security specific operations to LocalPeerSecureProxy
  * TODO add proper security annotations
+ * TODO remove duplicate functionality: addReverseProxy, addCustomProxy and setVniDomain+add/remove/isIpVNiDomain
  */
 @PermitAll
 public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
@@ -1424,9 +1425,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     @Override
     public void exchangeKeys( ResourceHost resourceHost, String hostname ) throws PeerException
     {
-        HostRegistrationManager registrationManager = ServiceLocator.getServiceNoCache( HostRegistrationManager.class );
-
-        Preconditions.checkNotNull( registrationManager );
+        HostRegistrationManager registrationManager = ServiceLocator.lookup( HostRegistrationManager.class );
 
         try
         {
@@ -1803,7 +1802,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             @Override
             public String getClassPath()
             {
-                return "EnvironmentImpl";
+                return "LocalEnvironment";
             }
 
 
@@ -2877,7 +2876,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
     protected PeerManager getPeerManager()
     {
-        return ServiceLocator.getServiceNoCache( PeerManager.class );
+        return ServiceLocator.lookup( PeerManager.class );
     }
 
 

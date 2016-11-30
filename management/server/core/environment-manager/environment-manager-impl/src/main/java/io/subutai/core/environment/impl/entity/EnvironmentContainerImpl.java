@@ -63,8 +63,8 @@ import io.subutai.common.security.relation.RelationManager;
 import io.subutai.common.security.relation.model.RelationMeta;
 import io.subutai.common.settings.Common;
 import io.subutai.common.util.ServiceLocator;
+import io.subutai.common.util.StringUtil;
 import io.subutai.core.environment.impl.EnvironmentManagerImpl;
-import io.subutai.core.environment.impl.adapter.EnvironmentAdapter;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
 import io.subutai.core.identity.api.model.UserDelegate;
@@ -116,7 +116,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     @JsonIgnore
     private Set<String> tags = new HashSet<>();
 
-    @ManyToOne( targetEntity = EnvironmentImpl.class, fetch = FetchType.EAGER )
+    @ManyToOne( targetEntity = LocalEnvironment.class, fetch = FetchType.EAGER )
     @JoinColumn( name = "environment_id" )
     @JsonIgnore
     protected Environment environment;
@@ -152,9 +152,6 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     //workaround for JPA problem setting parent environment field
     @Transient
     private Environment parent;
-
-    @Transient
-    private transient EnvironmentAdapter envAdapter;
 
 
     protected EnvironmentContainerImpl()
@@ -197,12 +194,6 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
         Preconditions.checkNotNull( environmentManager );
 
         this.environmentManager = environmentManager;
-    }
-
-
-    public void setEnvironmentAdapter( EnvironmentAdapter envAdapter )
-    {
-        this.envAdapter = envAdapter;
     }
 
 
@@ -290,7 +281,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
             if ( parent.getContainerHostsByPeerId( getPeerId() ).isEmpty() )
             {
-                ( ( EnvironmentImpl ) parent ).removeEnvironmentPeer( getPeerId() );
+                ( ( LocalEnvironment ) parent ).removeEnvironmentPeer( getPeerId() );
             }
         }
         catch ( Exception e )
@@ -298,9 +289,9 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
             logger.warn( e.getMessage() );
         }
 
-        ( ( EnvironmentImpl ) parent ).removeContainer( this );
+        ( ( LocalEnvironment ) parent ).removeContainer( this );
 
-        Environment env = environmentManager.update( ( EnvironmentImpl ) parent );
+        Environment env = environmentManager.update( ( LocalEnvironment ) parent );
 
         environment = null;
 
@@ -315,7 +306,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     {
         getPeer().startContainer( getContainerId() );
 
-        envAdapter.onContainerStart( environment.getId(), getId() );
+        environmentManager.notifyOnContainerStarted( parent, getId() );
     }
 
 
@@ -324,7 +315,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     {
         getPeer().stopContainer( getContainerId() );
 
-        envAdapter.onContainerStop( environment.getId(), getId() );
+        environmentManager.notifyOnContainerStopped( parent, getId() );
     }
 
 
@@ -344,7 +335,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
     protected LocalPeer getLocalPeer()
     {
-        return ServiceLocator.getServiceNoCache( LocalPeer.class );
+        return ServiceLocator.lookup( LocalPeer.class );
     }
 
 
@@ -425,7 +416,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ), "Invalid hostname" );
 
-        String newHostname = hostname.replaceAll( "\\s+", "" );
+        String newHostname = StringUtil.removeHtmlAndSpecialChars( hostname, true );
 
         Preconditions
                 .checkArgument( !StringUtils.equalsIgnoreCase( this.hostname, newHostname ), "No change in hostname" );

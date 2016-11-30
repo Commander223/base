@@ -12,6 +12,29 @@ function SettingsUpdatesCtrl($scope, SettingsUpdatesSrv, SweetAlert, DTOptionsBu
 	vm.getHistory = [];
 	vm.activeTab = 'update';
 	vm.updateText = 'Checking...';
+	vm.updateInProgress = false;
+
+	checkActiveUpdate();
+    getHistoryData();
+
+	function checkActiveUpdate(){
+
+        LOADING_SCREEN();
+
+	    SettingsUpdatesSrv.isUpdateInProgress().success(function (data){
+          	 if (data == true || data == 'true') {
+	            LOADING_SCREEN("none");
+
+          	    vm.updateInProgress = true;
+          	    vm.updateText = 'Update is in progress';
+
+                setTimeout(function() {checkActiveUpdate();}, 30000);
+          	 }else{
+          	    getConfig();
+          	 }
+	    });
+	}
+
 
 	function getConfig() {
 		LOADING_SCREEN();
@@ -29,7 +52,6 @@ function SettingsUpdatesCtrl($scope, SettingsUpdatesSrv, SweetAlert, DTOptionsBu
 		});
 	}
 
-	getConfig();
 
 	vm.dtInstance = {};
 	vm.dtOptions = DTOptionsBuilder
@@ -61,17 +83,15 @@ function SettingsUpdatesCtrl($scope, SettingsUpdatesSrv, SweetAlert, DTOptionsBu
 	vm.getHistoryData = getHistoryData;
 
 	function getHistoryData() {
-		LOADING_SCREEN();
 		SettingsUpdatesSrv.getHistory().success(function (data) {
-			LOADING_SCREEN('none');
 			vm.getHistory = data;
 			console.log(vm.getHistory);
 		}).error(function(error) {
-			LOADING_SCREEN('none');
 			SweetAlert.swal("ERROR!", error, "error");
 		});
 	}
-	getHistoryData();
+
+
 
 	function update() {
 
@@ -81,11 +101,8 @@ function SettingsUpdatesCtrl($scope, SettingsUpdatesSrv, SweetAlert, DTOptionsBu
 			LOADING_SCREEN('none');
 			sessionStorage.removeItem('notifications');
 			SweetAlert.swal("Success!", "Subutai Successfully updated.", "success");
-			getConfig();
+			checkActiveUpdate();
 		}).error(function (error) {
-			//LOADING_SCREEN('none');
-			//SweetAlert.swal("ERROR!", "Save config error: " + error, "error");
-			//getConfig();
 			setInterval(function() {
 				update();
 			}, 120000);

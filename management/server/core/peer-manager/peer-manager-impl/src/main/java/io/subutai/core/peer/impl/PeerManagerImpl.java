@@ -434,6 +434,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
+    @RolesAllowed( { "Peer-Management|Write", "Peer-Management|Update" } )
     @Override
     public void setName( final String peerId, final String newName ) throws PeerException
     {
@@ -517,6 +518,20 @@ public class PeerManagerImpl implements PeerManager
             throw new PeerException( "Peer not found: " + peerId );
         }
         return result;
+    }
+
+
+    @Override
+    public RemotePeer findPeer( final String peerId )
+    {
+        Peer peer = peers.get( peerId );
+
+        if ( peer != null && peer instanceof RemotePeer )
+        {
+            return ( RemotePeer ) peer;
+        }
+
+        return null;
     }
 
 
@@ -794,6 +809,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
+    @RolesAllowed( { "Peer-Management|Read" } )
     @Override
     public void checkHostAvailability( final String destinationHost ) throws PeerException
     {

@@ -77,9 +77,9 @@ import io.subutai.core.peer.api.PeerManager;
 @Access( AccessType.FIELD )
 @JsonAutoDetect( fieldVisibility = JsonAutoDetect.Visibility.ANY, getterVisibility = JsonAutoDetect.Visibility.NONE,
         setterVisibility = JsonAutoDetect.Visibility.NONE )
-public class EnvironmentImpl implements Environment, Serializable
+public class LocalEnvironment implements Environment, Serializable
 {
-    private static final Logger LOG = LoggerFactory.getLogger( EnvironmentImpl.class );
+    private static final Logger LOG = LoggerFactory.getLogger( LocalEnvironment.class );
 
     @Transient
     @JsonIgnore
@@ -158,12 +158,12 @@ public class EnvironmentImpl implements Environment, Serializable
     protected EnvironmentId envId;
 
 
-    protected EnvironmentImpl()
+    protected LocalEnvironment()
     {
     }
 
 
-    public EnvironmentImpl( String name, String sshKey, Long userId, String peerId )
+    public LocalEnvironment( String name, String sshKey, Long userId, String peerId )
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( name ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( peerId ) );
@@ -249,6 +249,14 @@ public class EnvironmentImpl implements Environment, Serializable
     public String getName()
     {
         return name;
+    }
+
+
+    protected void setName( String name )
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( name ) );
+
+        this.name = name;
     }
 
 
@@ -390,6 +398,26 @@ public class EnvironmentImpl implements Environment, Serializable
     }
 
 
+    public void excludePeerFromEnvironment( String peerId )
+    {
+        removeEnvironmentPeer( peerId );
+
+        removePeerContainers( peerId );
+    }
+
+
+    private void removePeerContainers( final String peerId )
+    {
+        for ( EnvironmentContainerHost containerHost : getContainerHosts() )
+        {
+            if ( peerId.equals( containerHost.getPeerId() ) )
+            {
+                removeContainer( containerHost );
+            }
+        }
+    }
+
+
     public EnvironmentPeerImpl getEnvironmentPeer( String peerId )
     {
         for ( EnvironmentPeer environmentPeer : environmentPeers )
@@ -432,12 +460,7 @@ public class EnvironmentImpl implements Environment, Serializable
                     Sets.newConcurrentHashSet( this.containers );
         }
 
-        PeerManager peerManager = ServiceLocator.getServiceNoCache( PeerManager.class );
-
-        if ( peerManager == null )
-        {
-            throw new IllegalStateException( "Failed to obtain Peer manager service" );
-        }
+        PeerManager peerManager = ServiceLocator.lookup( PeerManager.class );
 
         for ( EnvironmentContainerHost host : containerHosts )
         {
@@ -473,7 +496,7 @@ public class EnvironmentImpl implements Environment, Serializable
             containerDtos.add( new ContainerDto( host.getId(), getId(), host.getHostname(),
                     host.getInterfaceByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp(), host.getTemplateName(),
                     host.getContainerSize(), host.getArch().name(), host.getTags(), host.getPeerId(),
-                    host.getResourceHostId().getId(), isLocalContainer, "subutai", containerHostState,
+                    host.getResourceHostId().getId(), isLocalContainer, Common.SUBUTAI_ID, containerHostState,
                     host.getTemplateId() ) );
         }
 
@@ -592,12 +615,12 @@ public class EnvironmentImpl implements Environment, Serializable
         {
             return true;
         }
-        if ( !( o instanceof EnvironmentImpl ) )
+        if ( !( o instanceof LocalEnvironment ) )
         {
             return false;
         }
 
-        final EnvironmentImpl that = ( EnvironmentImpl ) o;
+        final LocalEnvironment that = ( LocalEnvironment ) o;
 
         return getId().equals( that.getId() );
     }
@@ -740,9 +763,9 @@ public class EnvironmentImpl implements Environment, Serializable
     @Override
     public String toString()
     {
-        return "EnvironmentImpl{" + "environmentId='" + environmentId + '\'' + ", peerId='" + peerId + '\'' + ", name='"
-                + name + '\'' + ", creationTimestamp=" + creationTimestamp + ", subnetCidr='" + subnetCidr + '\''
-                + ", vni=" + vni + ", tunnelNetwork='" + p2pSubnet + '\'' + ", containers=" + containers
+        return "LocalEnvironment{" + "environmentId='" + environmentId + '\'' + ", peerId='" + peerId + '\''
+                + ", name='" + name + '\'' + ", creationTimestamp=" + creationTimestamp + ", subnetCidr='" + subnetCidr
+                + '\'' + ", vni=" + vni + ", tunnelNetwork='" + p2pSubnet + '\'' + ", containers=" + containers
                 + ", peerConfs=" + environmentPeers + ", status=" + status + ", sshKeys='" + sshKeys + '\''
                 + ", userId=" + userId + ", alertHandlers=" + alertHandlers + ", envId=" + envId + '}';
     }

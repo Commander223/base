@@ -25,6 +25,7 @@ import io.subutai.core.security.rest.model.SecurityKeyData;
 
 /**
  * Implementation of Key Server Rest
+ * TODO determine what permissions plugin use and set appropriate permissions to this modules' methods
  */
 public class SecurityManagerRestImpl implements SecurityManagerRest
 {
@@ -164,18 +165,15 @@ public class SecurityManagerRestImpl implements SecurityManagerRest
     {
         try
         {
-            IdentityManager identityManager = ServiceLocator.getServiceNoCache( IdentityManager.class );
-            User user;
-            if ( identityManager != null )
-            {
-                user = identityManager.getActiveUser();
-                return getKeyTrustTree( user.getSecurityKeyId() );
-            }
+            IdentityManager identityManager = ServiceLocator.lookup( IdentityManager.class );
+            User user = identityManager.getActiveUser();
+            return getKeyTrustTree( user.getSecurityKeyId() );
         }
         catch ( Exception e )
         {
             logger.error( "Error getting identity manager.", e );
         }
+
         return null;
     }
 
