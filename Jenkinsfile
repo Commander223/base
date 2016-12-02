@@ -17,7 +17,6 @@
 // TODO:
 // - refactor getVersion function on native groovy
 // - Stash and unstash for builded artifacts (?)
-// - migrate getSlackToken to withCredentials 
 
 import groovy.json.JsonSlurperClassic
 
@@ -49,18 +48,19 @@ node() {
 	"""
 
 	// build deb
+	// sonar:sonar -Dsonar.branch=${env.BRANCH_NAME}
 	sh """
 		cd management
 		export GIT_BRANCH=${env.BRANCH_NAME}
 		if [[ "${env.BRANCH_NAME}" == "dev" ]]; then
-			${mvnHome}/bin/mvn clean install -P deb -Dgit.branch=${env.BRANCH_NAME} sonar:sonar -Dsonar.branch=${env.BRANCH_NAME}
+			${mvnHome}/bin/mvn clean install -P deb -Dgit.branch=${env.BRANCH_NAME}
 		else 
 			${mvnHome}/bin/mvn clean install -Dmaven.test.skip=true -P deb -Dgit.branch=${env.BRANCH_NAME}
 		fi		
 		find ${workspace}/management/server/server-karaf/target/ -name *.deb | xargs -I {} mv {} ${artifactDir}/${debFileName}
 	"""
 	// Start MNG-RH Lock
-	lock('rh-node') {
+	// lock('rh-node') {
 		// create management template
 		sh """
 			set +x
@@ -84,80 +84,84 @@ node() {
 
 			mv /mnt/lib/lxc/tmpdir/management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz /mnt/lib/lxc/jenkins/rootfs/${artifactDir}
 		EOF"""
-	}
+	// }
 
 	stage("Update management on test node")
 	// Deploy builded template to remore test-server
 	notifyBuildDetails = "\nFailed on Stage - Update management on test node"
 
 	// Start Test-Peer Lock
-	lock('test-node') {
-		// destroy existing management template on test node
-		sh """
-			set +x
-			ssh root@${env.SS_TEST_NODE} <<- EOF
-			set -e
-			subutai destroy everything
-			if test -f /var/lib/apps/subutai/current/p2p.save; then rm /var/lib/apps/subutai/current/p2p.save; fi
-			systemctl restart subutai_p2p_*.service
-			if test -f /mnt/lib/lxc/tmpdir/management-subutai-template_*; then rm /mnt/lib/lxc/tmpdir/management-subutai-template_*; fi
-		EOF"""
-
-		// update rh on test node
-		def rhUpdateStatus = sh (script: "ssh root@${env.SS_TEST_NODE} /apps/subutai/current/bin/subutai update rh -c | cut -d '=' -f4 | tr -d '\"' | tr -d '\n'", returnStdout: true)
-		if (rhUpdateStatus == '[Update is available] ') {
+	if (env.BRANCH_NAME == 'dev') {
+		// lock('test-node') {
+			// destroy existing management template on test node
 			sh """
+				set +x
 				ssh root@${env.SS_TEST_NODE} <<- EOF
 				set -e
-				subutai update rh
+				subutai destroy everything
+				if test -f /var/lib/apps/subutai/current/p2p.save; then rm /var/lib/apps/subutai/current/p2p.save; fi
+				if test -f /mnt/lib/lxc/tmpdir/management-subutai-template_*; then rm /mnt/lib/lxc/tmpdir/management-subutai-template_*; fi
+				/apps/subutai/current/bin/curl https://cdn.subut.ai:8338/kurjun/rest/raw/get?name=subutai_${artifactVersion}_amd64-dev.snap -o /tmp/subutai-latest.snap
+				snappy install --allow-unauthenticated /tmp/subutai-latest.snap
+			EOF"""
+
+			// update rh on test node
+			// def rhUpdateStatus = sh (script: "ssh root@${env.SS_TEST_NODE} /apps/subutai/current/bin/subutai update rh -c | cut -d '=' -f4 | tr -d '\"' | tr -d '\n'", returnStdout: true)
+			// if (rhUpdateStatus == '[Update is available] ') {
+			// 	sh """
+			// 		ssh root@${env.SS_TEST_NODE} <<- EOF
+			// 		set -e
+			// 		subutai update rh
+			// 	"""
+			// }
+
+			// copy generated management template on test node
+			sh """
+				set +x
+				scp ${artifactDir}/management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz root@${env.SS_TEST_NODE}:/mnt/lib/lxc/tmpdir
 			"""
-		}
 
-		// copy generated management template on test node
-		sh """
-			set +x
-			scp ${artifactDir}/management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz root@${env.SS_TEST_NODE}:/mnt/lib/lxc/tmpdir
-		"""
+			// install genetared management template
+			sh """
+				set +x
+				ssh root@${env.SS_TEST_NODE} <<- EOF
+				set -e
+				echo -e '[template]\nbranch = ${env.BRANCH_NAME}' > /var/lib/apps/subutai/current/agent.gcfg
+				echo -e '[cdn]\nurl = cdn.local' >> /var/lib/apps/subutai/current/agent.gcfg
+				echo y | subutai import management
+				sed -i -e 's/cdn.local/cdn.subut.ai/g' /mnt/lib/lxc/management/rootfs/etc/apt/sources.list.d/subutai-repo.list
+				if test -f /var/lib/apps/subutai/current/agent.gcfg; then rm /var/lib/apps/subutai/current/agent.gcfg; fi
+			EOF"""
 
-		// install genetared management template
-		sh """
-			set +x
-			ssh root@${env.SS_TEST_NODE} <<- EOF
-			set -e
-			echo -e '[template]\nbranch = ${env.BRANCH_NAME}' > /var/lib/apps/subutai/current/agent.gcfg
-			echo -e '[cdn]\nurl = cdn.local' >> /var/lib/apps/subutai/current/agent.gcfg
-			echo y | subutai import management
-			sed -i -e 's/cdn.local/cdn.subut.ai/g' /mnt/lib/lxc/management/rootfs/etc/apt/sources.list.d/subutai-repo.list
-			rm /var/lib/apps/subutai/current/agent.gcfg
-		EOF"""
+			/* wait until SS starts */
+			timeout(time: 5, unit: 'MINUTES') {
+				sh """
+					set +x
+					echo "Waiting SS"
+					while [ \$(curl -k -s -o /dev/null -w %{http_code} 'https://${env.SS_TEST_NODE}:8443/rest/v1/peer/ready') != "200" ]; do
+						sleep 5
+					done
+				"""
+			}
 
-		// wait until SS starts
-		sh """
-			set +x
-			echo "Waiting SS"
-			while [ \$(curl -k -s -o /dev/null -w %{http_code} 'https://${env.SS_TEST_NODE}:8443/rest/v1/peer/ready') != "200" ]; do
-				sleep 5
-			done
-		"""
+			stage("Integration tests")
+			// Run Serenity Tests
+			notifyBuildDetails = "\nFailed on Stage - Integration tests\nSerenity Tests Results:\n${env.JENKINS_URL}serenity/${commitId}"
 
-
-		stage("Integration tests")
-		// Run Serenity Tests
-		notifyBuildDetails = "\nFailed on Stage - Integration tests\nSerenity Tests Results:\n${env.JENKINS_URL}serenity/${commitId}"
-
-		git url: "https://github.com/subutai-io/playbooks.git"
-		sh """
-			set +e
-			./run_tests_qa.sh -m ${env.SS_TEST_NODE}
-			./run_tests_qa.sh -s all
-			${mvnHome}/bin/mvn integration-test -Dwebdriver.firefox.profile=src/test/resources/profilePgpFF
-			OUT=\$?
-			${mvnHome}/bin/mvn serenity:aggregate
-			cp -rl target/site/serenity ${serenityReportDir}
-			if [ \$OUT -ne 0 ];then
-				exit 1
-			fi
-		"""
+			git url: "https://github.com/subutai-io/playbooks.git"
+			sh """
+				set +e
+				./run_tests_qa.sh -m ${env.SS_TEST_NODE}
+				./run_tests_qa.sh -s all
+				${mvnHome}/bin/mvn integration-test -Dwebdriver.firefox.profile=src/test/resources/profilePgpFF
+				OUT=\$?
+				${mvnHome}/bin/mvn serenity:aggregate
+				cp -rl target/site/serenity ${serenityReportDir}
+				if [ \$OUT -ne 0 ];then
+					exit 1
+				fi
+			"""
+		// }
 	}
 
 	stage("Deploy artifacts on kurjun")
