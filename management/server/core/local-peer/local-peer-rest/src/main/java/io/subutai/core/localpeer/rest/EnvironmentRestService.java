@@ -14,12 +14,10 @@ import javax.ws.rs.core.Response;
 import io.subutai.common.environment.HostAddresses;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
-import io.subutai.common.metric.ProcessResourceUsage;
+import io.subutai.common.host.Quota;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.protocol.CustomProxyConfig;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKeys;
 import io.subutai.hub.share.quota.ContainerQuota;
@@ -57,11 +55,10 @@ public interface EnvironmentRestService
     ContainerHostState getContainerState( @PathParam( "containerId" ) ContainerId containerId );
 
     @GET
-    @Path( "{environmentId}/container/{containerId}/usage/{pid}" )
+    @Path( "{environmentId}/container/{containerId}/quota/raw" )
     @Consumes( MediaType.APPLICATION_JSON )
-    @Produces( { MediaType.APPLICATION_JSON } )
-    ProcessResourceUsage getProcessResourceUsage( @PathParam( "containerId" ) ContainerId containerId,
-                                                  @PathParam( "pid" ) int pid );
+    @Produces( MediaType.APPLICATION_JSON )
+    Quota getRawQuota( @PathParam( "containerId" ) ContainerId containerId );
 
 
     @GET
@@ -76,11 +73,13 @@ public interface EnvironmentRestService
     @Produces( MediaType.APPLICATION_JSON )
     Response setQuota( @PathParam( "containerId" ) ContainerId containerId, ContainerQuota containerQuota );
 
+/*
     @POST
     @Path( "{environmentId}/container/{containerId}/size" )
     @Consumes( MediaType.APPLICATION_JSON )
     @Produces( MediaType.APPLICATION_JSON )
     Response setContainerSize( @PathParam( "containerId" ) ContainerId containerId, ContainerSize containerSize );
+*/
 
     @GET
     @Path( "{environmentId}/container/{containerId}/rhId" )
@@ -125,12 +124,6 @@ public interface EnvironmentRestService
     Response configureHostsInEnvironment( @PathParam( "environmentId" ) EnvironmentId environmentId,
                                           HostAddresses hostAddresses );
 
-    @POST
-    @Path( "{environmentId}/container/{containerId}/reverseProxy" )
-    @Consumes( MediaType.APPLICATION_JSON )
-    @Produces( MediaType.APPLICATION_JSON )
-    Response addReverseProxy( ReverseProxyConfig reverseProxyConfig );
-
     @GET
     @Path( "{environmentId}/sshkeys/{encType}" )
     @Consumes( MediaType.APPLICATION_JSON )
@@ -151,8 +144,9 @@ public interface EnvironmentRestService
                                                  @PathParam( "newHostname" ) String newHostname );
 
     @POST
-    @Path( "{environmentId}/containers/authorizedkeys/{oldHostname}/{newHostname}" )
+    @Path( "{environmentId}/containers/authorizedkeys/{encType}/{oldHostname}/{newHostname}" )
     void updateAuthorizedKeysWithNewContainerHostname( @PathParam( "environmentId" ) EnvironmentId environmentId,
+                                                       @PathParam( "encType" ) SshEncryptionType sshEncryptionType,
                                                        @PathParam( "oldHostname" ) String oldHostname,
                                                        @PathParam( "newHostname" ) String newHostname );
 
@@ -175,4 +169,26 @@ public interface EnvironmentRestService
     @Produces( MediaType.APPLICATION_JSON )
     Response excludePeerFromEnvironment( @PathParam( "environmentId" ) String environmentId,
                                          @PathParam( "peerId" ) String peerId );
+
+    @POST
+    @Path( "{environmentId}/containers/{containerId}/exclude" )
+    @Consumes( MediaType.APPLICATION_JSON )
+    @Produces( MediaType.APPLICATION_JSON )
+    Response excludeContainerFromEnvironment( @PathParam( "environmentId" ) String environmentId,
+                                              @PathParam( "containerId" ) String containerId );
+
+    @POST
+    @Path( "{environmentId}/containers/{containerId}/hostname/{hostname}" )
+    @Consumes( MediaType.APPLICATION_JSON )
+    @Produces( MediaType.APPLICATION_JSON )
+    Response updateContainerHostname( @PathParam( "environmentId" ) String environmentId,
+                                      @PathParam( "containerId" ) String containerId,
+                                      @PathParam( "hostname" ) String hostname );
+
+    @POST
+    @Path( "{environmentId}/info/{containerId}" )
+    @Consumes( MediaType.APPLICATION_JSON )
+    @Produces( MediaType.APPLICATION_JSON )
+    Response placeEnvironmentInfoByContainerId( @PathParam( "environmentId" ) String environmentId,
+                                                @PathParam( "containerId" ) String containerId );
 }

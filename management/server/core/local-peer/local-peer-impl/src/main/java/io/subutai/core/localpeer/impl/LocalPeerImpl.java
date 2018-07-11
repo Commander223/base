@@ -3,25 +3,44 @@ package io.subutai.core.localpeer.impl;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.annotation.security.PermitAll;
 import javax.annotation.security.RolesAllowed;
 
 import org.bouncycastle.openpgp.PGPPublicKeyRing;
 import org.bouncycastle.openpgp.PGPSecretKeyRing;
+import org.osgi.framework.Bundle;
+import org.osgi.framework.BundleContext;
+import org.osgi.framework.FrameworkUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.karaf.bundle.core.BundleState;
+import org.apache.karaf.bundle.core.BundleStateService;
+
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import io.subutai.common.command.CommandCallback;
@@ -35,24 +54,26 @@ import io.subutai.common.environment.Containers;
 import io.subutai.common.environment.CreateEnvironmentContainersRequest;
 import io.subutai.common.environment.CreateEnvironmentContainersResponse;
 import io.subutai.common.environment.HostAddresses;
+import io.subutai.common.environment.Node;
+import io.subutai.common.environment.Nodes;
 import io.subutai.common.environment.PeerTemplatesDownloadProgress;
+import io.subutai.common.environment.PeerTemplatesUploadProgress;
 import io.subutai.common.environment.PrepareTemplatesRequest;
 import io.subutai.common.environment.PrepareTemplatesResponse;
 import io.subutai.common.environment.RhP2pIp;
 import io.subutai.common.environment.RhTemplatesDownloadProgress;
+import io.subutai.common.environment.RhTemplatesUploadProgress;
 import io.subutai.common.exception.DaoException;
 import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.host.ContainerHostInfoModel;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
 import io.subutai.common.host.HostInfo;
-import io.subutai.common.host.HostInterface;
 import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
-import io.subutai.common.host.NullHostInterface;
 import io.subutai.common.host.ResourceHostInfo;
+import io.subutai.common.host.ResourceHostInfoModel;
 import io.subutai.common.metric.HistoricalMetrics;
-import io.subutai.common.metric.ProcessResourceUsage;
 import io.subutai.common.metric.QuotaAlertValue;
 import io.subutai.common.metric.ResourceHostMetric;
 import io.subutai.common.metric.ResourceHostMetrics;
@@ -65,15 +86,17 @@ import io.subutai.common.network.UsedNetworkResources;
 import io.subutai.common.peer.AlertEvent;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
+import io.subutai.common.peer.ContainerInfo;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.Host;
 import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
+import io.subutai.common.peer.LocalPeerEventListener;
 import io.subutai.common.peer.Payload;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.peer.PeerId;
 import io.subutai.common.peer.PeerInfo;
+import io.subutai.common.peer.PeerPolicy;
 import io.subutai.common.peer.RegistrationStatus;
 import io.subutai.common.peer.RequestListener;
 import io.subutai.common.peer.ResourceHost;
@@ -83,7 +106,6 @@ import io.subutai.common.protocol.Disposable;
 import io.subutai.common.protocol.P2PConfig;
 import io.subutai.common.protocol.P2PCredentials;
 import io.subutai.common.protocol.P2pIps;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.protocol.Template;
 import io.subutai.common.security.PublicKeyContainer;
 import io.subutai.common.security.SshEncryptionType;
@@ -104,25 +126,28 @@ import io.subutai.common.security.relation.model.RelationInfoMeta;
 import io.subutai.common.security.relation.model.RelationMeta;
 import io.subutai.common.security.relation.model.RelationStatus;
 import io.subutai.common.settings.Common;
-import io.subutai.common.settings.SystemSettings;
 import io.subutai.common.task.CloneRequest;
 import io.subutai.common.util.CollectionUtil;
 import io.subutai.common.util.ExceptionUtil;
 import io.subutai.common.util.HostUtil;
 import io.subutai.common.util.P2PUtil;
 import io.subutai.common.util.ServiceLocator;
+import io.subutai.common.util.StringUtil;
 import io.subutai.common.util.TaskUtil;
+import io.subutai.common.util.UnitUtil;
 import io.subutai.core.executor.api.CommandExecutor;
 import io.subutai.core.hostregistry.api.HostDisconnectedException;
 import io.subutai.core.hostregistry.api.HostListener;
 import io.subutai.core.hostregistry.api.HostRegistry;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
+import io.subutai.core.localpeer.impl.binding.BatchOutput;
+import io.subutai.core.localpeer.impl.binding.Commands;
+import io.subutai.core.localpeer.impl.binding.QuotaOutput;
 import io.subutai.core.localpeer.impl.command.CommandRequestListener;
 import io.subutai.core.localpeer.impl.container.CreateEnvironmentContainersRequestListener;
 import io.subutai.core.localpeer.impl.container.ImportTemplateTask;
 import io.subutai.core.localpeer.impl.container.PrepareTemplateRequestListener;
-import io.subutai.core.localpeer.impl.container.SetQuotaTask;
 import io.subutai.core.localpeer.impl.dao.NetworkResourceDaoImpl;
 import io.subutai.core.localpeer.impl.dao.ResourceHostDataService;
 import io.subutai.core.localpeer.impl.entity.AbstractSubutaiHost;
@@ -130,13 +155,12 @@ import io.subutai.core.localpeer.impl.entity.ContainerHostEntity;
 import io.subutai.core.localpeer.impl.entity.NetworkResourceEntity;
 import io.subutai.core.localpeer.impl.entity.ResourceHostEntity;
 import io.subutai.core.localpeer.impl.tasks.CleanupEnvironmentTask;
+import io.subutai.core.localpeer.impl.tasks.DeleteTunnelsTask;
 import io.subutai.core.localpeer.impl.tasks.JoinP2PSwarmTask;
 import io.subutai.core.localpeer.impl.tasks.ResetP2PSwarmSecretTask;
-import io.subutai.core.localpeer.impl.tasks.TunnelsTask;
+import io.subutai.core.localpeer.impl.tasks.SetupTunnelsTask;
 import io.subutai.core.localpeer.impl.tasks.UsedHostNetResourcesTask;
-import io.subutai.core.lxc.quota.api.QuotaManager;
 import io.subutai.core.metric.api.Monitor;
-import io.subutai.core.metric.api.MonitorException;
 import io.subutai.core.network.api.NetworkManager;
 import io.subutai.core.network.api.NetworkManagerException;
 import io.subutai.core.peer.api.PeerManager;
@@ -145,13 +169,25 @@ import io.subutai.core.security.api.SecurityManager;
 import io.subutai.core.security.api.crypto.EncryptionTool;
 import io.subutai.core.security.api.crypto.KeyManager;
 import io.subutai.core.template.api.TemplateManager;
+import io.subutai.hub.share.dto.metrics.HostMetricsDto;
+import io.subutai.hub.share.parser.CommonResourceValueParser;
+import io.subutai.hub.share.quota.ContainerCpuResource;
+import io.subutai.hub.share.quota.ContainerDiskResource;
 import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerRamResource;
+import io.subutai.hub.share.quota.ContainerResource;
+import io.subutai.hub.share.quota.ContainerResourceFactory;
+import io.subutai.hub.share.quota.ContainerSize;
+import io.subutai.hub.share.quota.Quota;
 import io.subutai.hub.share.quota.QuotaException;
+import io.subutai.hub.share.resource.ByteUnit;
+import io.subutai.hub.share.resource.ContainerResourceType;
 import io.subutai.hub.share.resource.CpuResource;
 import io.subutai.hub.share.resource.DiskResource;
 import io.subutai.hub.share.resource.HostResources;
 import io.subutai.hub.share.resource.PeerResources;
 import io.subutai.hub.share.resource.RamResource;
+import io.subutai.hub.share.resource.ResourceValue;
 
 
 /**
@@ -160,16 +196,18 @@ import io.subutai.hub.share.resource.RamResource;
  * TODO add proper security annotations
  */
 @PermitAll
-public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
+public class LocalPeerImpl extends HostListener implements LocalPeer, Disposable
 {
-    private static final Logger LOG = LoggerFactory.getLogger( LocalPeerImpl.class );
+    private static final int BUNDLE_COUNT = 281;
 
+    private static final Logger LOG = LoggerFactory.getLogger( LocalPeerImpl.class );
+    private static final BigDecimal ONE_HUNDRED = new BigDecimal( "100.00" );
+    private static final double ACCOMMODATION_OVERHEAD_FACTOR = 1.01;
 
     private transient DaoManager daoManager;
     private transient TemplateManager templateManager;
     transient Set<ResourceHost> resourceHosts = Sets.newConcurrentHashSet();
     private transient CommandExecutor commandExecutor;
-    private transient QuotaManager quotaManager;
     private transient Monitor monitor;
     transient ResourceHostDataService resourceHostDataService;
     private transient HostRegistry hostRegistry;
@@ -183,30 +221,24 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     private transient NetworkResourceDaoImpl networkResourceDao;
     private transient final LocalPeerCommands localPeerCommands = new LocalPeerCommands();
     private transient final HostUtil hostUtil = new HostUtil();
-    protected transient SystemSettings systemSettings;
-
+    private ObjectMapper mapper = new ObjectMapper();
     volatile boolean initialized = false;
     PeerInfo peerInfo;
+    private transient ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
+    private transient ExecutorService threadPool = Executors.newCachedThreadPool();
+    private transient Set<LocalPeerEventListener> peerEventListeners = Sets.newHashSet();
+    private AtomicInteger containerCreationCounter = new AtomicInteger();
 
 
-    public LocalPeerImpl( DaoManager daoManager, TemplateManager templateManager, QuotaManager quotaManager,
-                          CommandExecutor commandExecutor, HostRegistry hostRegistry, Monitor monitor,
-                          SecurityManager securityManager )
+    public LocalPeerImpl( DaoManager daoManager, TemplateManager templateManager, CommandExecutor commandExecutor,
+                          HostRegistry hostRegistry, Monitor monitor, SecurityManager securityManager )
     {
         this.daoManager = daoManager;
         this.templateManager = templateManager;
-        this.quotaManager = quotaManager;
         this.monitor = monitor;
         this.commandExecutor = commandExecutor;
         this.hostRegistry = hostRegistry;
         this.securityManager = securityManager;
-        this.systemSettings = getSystemSettings();
-    }
-
-
-    protected SystemSettings getSystemSettings()
-    {
-        return new SystemSettings();
     }
 
 
@@ -244,14 +276,21 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
             resourceHosts.clear();
 
-            for ( ResourceHost resourceHost : resourceHostDataService.getAll() )
-            {
-                resourceHosts.add( resourceHost );
-            }
+            resourceHosts.addAll( resourceHostDataService.getAll() );
 
             setResourceHostTransientFields( getResourceHosts() );
 
             this.networkResourceDao = new NetworkResourceDaoImpl( daoManager.getEntityManagerFactory() );
+
+
+            cleaner.scheduleWithFixedDelay( new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    removeStaleContainers();
+                }
+            }, 30, 5, TimeUnit.MINUTES );
         }
         catch ( Exception e )
         {
@@ -291,8 +330,8 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         peerInfo = new PeerInfo();
         peerInfo.setId( securityManager.getKeyManager().getPeerId() );
         peerInfo.setOwnerId( securityManager.getKeyManager().getPeerOwnerId() );
-        peerInfo.setPublicUrl( systemSettings.getPublicUrl() );
-        peerInfo.setPublicSecurePort( systemSettings.getPublicSecurePort() );
+        peerInfo.setPublicUrl( Common.DEFAULT_PUBLIC_URL );
+        peerInfo.setPublicSecurePort( Common.DEFAULT_PUBLIC_SECURE_PORT );
         peerInfo.setName( "Local Peer" );
     }
 
@@ -772,10 +811,17 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
             for ( final String templateId : request.getTemplates().get( resourceHostId ) )
             {
+                //                Template template = templateManager.getTemplate( templateId, request.getCdnToken() );
                 Template template = templateManager.getTemplate( templateId );
 
+                if ( template == null )
+                {
+                    throw new PeerException( String.format( "Template `%s` not found.", templateId ) );
+                }
+
                 HostUtil.Task<Object> importTask =
-                        new ImportTemplateTask( template, resourceHost, request.getEnvironmentId() );
+                        new ImportTemplateTask( template, resourceHost, request.getEnvironmentId(),
+                                request.getCdnToken() );
 
                 tasks.addTask( resourceHost, importTask );
             }
@@ -789,6 +835,246 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     }
 
 
+    @Override
+    public State getState()
+    {
+        boolean failed = false;
+
+        boolean ready = true;
+
+        BundleContext ctx = FrameworkUtil.getBundle( LocalPeerImpl.class ).getBundleContext();
+
+        BundleStateService bundleStateService = ServiceLocator.lookup( BundleStateService.class );
+
+        Bundle[] bundles = ctx.getBundles();
+
+        if ( bundles.length < BUNDLE_COUNT )
+        {
+            LOG.warn( "Bundle count is {}", bundles.length );
+
+            return State.LOADING;
+        }
+
+        for ( Bundle bundle : bundles )
+        {
+            if ( bundleStateService.getState( bundle ) == BundleState.Failure )
+            {
+                failed = true;
+
+                break;
+            }
+
+            if ( !( ( bundle.getState() == Bundle.ACTIVE ) || ( bundle.getState() == Bundle.RESOLVED ) ) )
+            {
+                ready = false;
+
+                break;
+            }
+        }
+
+        return failed ? State.FAILED : ready ? State.READY : State.LOADING;
+    }
+
+
+    //TODO add dateCreated to ContainerHostEntity
+    //when quota change is requested, check for the time passed since the dateCreated
+    //or since the last quota change
+    //must be at least 30 seconds otherwise throw an exception
+    @RolesAllowed( "Environment-Management|Read" )
+    @Override
+    public boolean canAccommodate( final Nodes nodes ) throws PeerException
+    {
+        Preconditions.checkArgument(
+                nodes != null && ( !CollectionUtil.isMapEmpty( nodes.getQuotas() ) || !CollectionUtil
+                        .isCollectionEmpty( nodes.getNodes() ) ), "Invalid nodes" );
+
+        Map<ResourceHost, ResourceHostCapacity> requestedResources = Maps.newHashMap();
+
+        for ( ContainerHostInfo containerHostInfo : hostRegistry.getContainerHostsInfo() )
+        {
+            //use new quota instead of current if present
+            ContainerQuota newQuota = null;
+            if ( nodes.getQuotas() != null )
+            {
+                newQuota = nodes.getQuotas().get( containerHostInfo.getId() );
+            }
+
+            //use current quota as requested amount unless the container has a change of quota
+            //note: we use 0 for containers that have unset quota since we don't know what the effective limit is
+            double requestedRam = newQuota != null ? newQuota.getContainerSize().getRamQuota() :
+                                  containerHostInfo.getRawQuota() == null
+                                          || containerHostInfo.getRawQuota().getRam() == null ? 0 :
+                                  UnitUtil.convert( containerHostInfo.getRawQuota().getRam(), UnitUtil.Unit.MB,
+                                          UnitUtil.Unit.B );
+
+            double requestedCpu = newQuota != null ? newQuota.getContainerSize().getCpuQuota() :
+                                  containerHostInfo.getRawQuota() == null
+                                          || containerHostInfo.getRawQuota().getCpu() == null ? 0 :
+                                  containerHostInfo.getRawQuota().getCpu();
+
+            double requestedDisk = newQuota != null ? newQuota.getContainerSize().getDiskQuota() :
+                                   containerHostInfo.getRawQuota() == null
+                                           || containerHostInfo.getRawQuota().getDisk() == null ? 0 :
+                                   UnitUtil.convert( containerHostInfo.getRawQuota().getDisk(), UnitUtil.Unit.GB,
+                                           UnitUtil.Unit.B );
+
+            //figure out current container resource consumption based on historical metrics
+            Calendar cal = Calendar.getInstance();
+            Date endTime = cal.getTime();
+            //1 hour interval is enough
+            cal.add( Calendar.MINUTE, -60 );
+            Date startTime = cal.getTime();
+
+            try
+            {
+                ContainerHost containerHost = getContainerHostById( containerHostInfo.getId() );
+
+                HistoricalMetrics historicalMetrics = monitor.getMetricsSeries( containerHost, startTime, endTime );
+                HostMetricsDto hostMetricsDto = historicalMetrics.getHostMetrics();
+
+                //skip partial metric, b/c this happens for new containers
+                if ( !HistoricalMetrics.isZeroMetric( hostMetricsDto ) )
+                {
+
+                    double ramUsed = hostMetricsDto.getMemory().getCached() + hostMetricsDto.getMemory().getRss();
+                    double cpuUsed = hostMetricsDto.getCpu().getSystem() + hostMetricsDto.getCpu().getUser();
+                    double diskUsed = historicalMetrics.getContainerDiskUsed();
+
+                    //subtract current consumption resource amount from the requested amount
+                    if ( requestedRam > 0 )
+                    {
+                        requestedRam -= ramUsed;
+                    }
+                    if ( requestedCpu > 0 )
+                    {
+                        requestedCpu -= cpuUsed;
+                    }
+                    if ( requestedDisk > 0 )
+                    {
+                        requestedDisk -= diskUsed;
+                    }
+                }
+            }
+            catch ( HostNotFoundException e )
+            {
+                //skip unregistered containers, b/c their quotas are not considered
+            }
+
+            ResourceHostInfo resourceHostInfo;
+            try
+            {
+                resourceHostInfo = hostRegistry.getResourceHostByContainerHost( containerHostInfo );
+            }
+            catch ( HostDisconnectedException e )
+            {
+                throw new PeerException( e );
+            }
+
+            ResourceHost resourceHost = getResourceHostById( resourceHostInfo.getId() );
+
+            ResourceHostCapacity resourceHostCapacity = requestedResources.get( resourceHost );
+
+            if ( resourceHostCapacity != null )
+            {
+                resourceHostCapacity.setRam( resourceHostCapacity.getRam() + requestedRam );
+                resourceHostCapacity.setDisk( resourceHostCapacity.getDisk() + requestedDisk );
+                resourceHostCapacity.setCpu( resourceHostCapacity.getCpu() + requestedCpu );
+            }
+            else
+            {
+                resourceHostCapacity = new ResourceHostCapacity( requestedRam, requestedDisk, requestedCpu );
+            }
+
+            requestedResources.put( resourceHost, resourceHostCapacity );
+        }
+
+        //new nodes
+        if ( nodes.getNodes() != null )
+        {
+            for ( Node node : nodes.getNodes() )
+            {
+                double requestedRam = node.getQuota().getContainerSize().getRamQuota();
+                double requestedDisk = node.getQuota().getContainerSize().getDiskQuota();
+                double requestedCpu = node.getQuota().getContainerSize().getCpuQuota();
+
+                ResourceHost resourceHost = getResourceHostById( node.getHostId() );
+
+                ResourceHostCapacity resourceHostCapacity = requestedResources.get( resourceHost );
+
+                if ( resourceHostCapacity != null )
+                {
+                    resourceHostCapacity.setRam( resourceHostCapacity.getRam() + requestedRam );
+                    resourceHostCapacity.setDisk( resourceHostCapacity.getDisk() + requestedDisk );
+                    resourceHostCapacity.setCpu( resourceHostCapacity.getCpu() + requestedCpu );
+                }
+                else
+                {
+                    resourceHostCapacity = new ResourceHostCapacity( requestedRam, requestedDisk, requestedCpu );
+                }
+
+                requestedResources.put( resourceHost, resourceHostCapacity );
+            }
+        }
+
+        Map<ResourceHost, ResourceHostCapacity> availableResources = Maps.newHashMap();
+
+        for ( ResourceHost resourceHost : getResourceHosts() )
+        {
+            ResourceHostMetric resourceHostMetric = monitor.getResourceHostMetric( resourceHost );
+
+            double availPeerRam = resourceHostMetric.getAvailableRam();
+            double availPeerDisk = resourceHostMetric.getAvailableSpace();
+            double availPeerCpu = resourceHostMetric.getCpuCore() * resourceHostMetric.getAvailableCpu();
+
+            availableResources
+                    .put( resourceHost, new ResourceHostCapacity( availPeerRam, availPeerDisk, availPeerCpu ) );
+        }
+
+
+        boolean canAccommodate = true;
+
+        for ( Map.Entry<ResourceHost, ResourceHostCapacity> resourceEntry : requestedResources.entrySet() )
+        {
+            ResourceHost resourceHost = resourceEntry.getKey();
+            ResourceHostCapacity requestedCapacity = resourceEntry.getValue();
+
+            ResourceHostCapacity availableCapacity = availableResources.get( resourceHost );
+
+            if ( requestedCapacity.getRam() * ACCOMMODATION_OVERHEAD_FACTOR > availableCapacity.getRam() )
+            {
+                LOG.warn( "Requested RAM volume {}MB can not be accommodated on RH {}: available RAM volume is {}MB",
+                        UnitUtil.convert( requestedCapacity.getRam(), UnitUtil.Unit.B, UnitUtil.Unit.MB ),
+                        resourceHost.getHostname(),
+                        UnitUtil.convert( availableCapacity.getRam(), UnitUtil.Unit.B, UnitUtil.Unit.MB ) );
+
+                canAccommodate = false;
+            }
+
+            if ( requestedCapacity.getDisk() * ACCOMMODATION_OVERHEAD_FACTOR > availableCapacity.getDisk() )
+            {
+                LOG.warn( "Requested DISK volume {}GB can not be accommodated on RH {}: available DISK volume is "
+                                + "{}GB", UnitUtil.convert( requestedCapacity.getDisk(), UnitUtil.Unit.B, UnitUtil
+                                .Unit.GB ),
+                        resourceHost.getHostname(),
+                        UnitUtil.convert( availableCapacity.getDisk(), UnitUtil.Unit.B, UnitUtil.Unit.GB ) );
+
+                canAccommodate = false;
+            }
+
+            if ( requestedCapacity.getCpu() * ACCOMMODATION_OVERHEAD_FACTOR > availableCapacity.getCpu() )
+            {
+                LOG.warn( "Requested CPU {} can not be accommodated on RH {}: available CPU is {}",
+                        resourceHost.getHostname(), requestedCapacity.getCpu(), availableCapacity.getCpu() );
+
+                canAccommodate = false;
+            }
+        }
+
+
+        return canAccommodate;
+    }
+
+
     @RolesAllowed( "Environment-Management|Write" )
     @Override
     public CreateEnvironmentContainersResponse createEnvironmentContainers(
@@ -796,66 +1082,80 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     {
         Preconditions.checkNotNull( requestGroup );
 
-        NetworkResource reservedNetworkResource =
-                getReservedNetworkResources().findByEnvironmentId( requestGroup.getEnvironmentId() );
-
-        if ( reservedNetworkResource == null )
+        try
         {
-            throw new PeerException( String.format( "No reserved network resources found for environment %s",
-                    requestGroup.getEnvironmentId() ) );
-        }
+            containerCreationCounter.incrementAndGet();
 
-        //clone containers
-        HostUtil.Tasks cloneTasks = new HostUtil.Tasks();
+            NetworkResource reservedNetworkResource =
+                    getReservedNetworkResources().findByEnvironmentId( requestGroup.getEnvironmentId() );
 
-        for ( final CloneRequest request : requestGroup.getRequests() )
-        {
-            ResourceHost resourceHost = getResourceHostById( request.getResourceHostId() );
-
-            CloneContainerTask task =
-                    new CloneContainerTask( request, templateManager.getTemplate( request.getTemplateId() ),
-                            resourceHost, reservedNetworkResource, this );
-
-            cloneTasks.addTask( resourceHost, task );
-        }
-
-        HostUtil.Results cloneResults = hostUtil.execute( cloneTasks, reservedNetworkResource.getEnvironmentId() );
-
-        //register succeeded containers
-        HostUtil.Tasks quotaTasks = new HostUtil.Tasks();
-
-        for ( HostUtil.Task cloneTask : cloneResults.getTasks().getTasks() )
-        {
-            CloneRequest request = ( ( CloneContainerTask ) cloneTask ).getRequest();
-
-            if ( cloneTask.getTaskState() == HostUtil.Task.TaskState.SUCCEEDED )
+            if ( reservedNetworkResource == null )
             {
-
-                final HostInterfaces interfaces = new HostInterfaces();
-
-                interfaces.addHostInterface(
-                        new HostInterfaceModel( Common.DEFAULT_CONTAINER_INTERFACE, request.getIp().split( "/" )[0] ) );
-
-                ContainerHostEntity containerHostEntity =
-                        new ContainerHostEntity( getId(), ( ( CloneContainerTask ) cloneTask ).getResult(),
-                                request.getHostname(), request.getTemplateArch(), interfaces, request.getHostname(),
-                                request.getTemplateId(), requestGroup.getEnvironmentId(), requestGroup.getOwnerId(),
-                                requestGroup.getInitiatorPeerId(), request.getContainerSize() );
-
-                registerContainer( request.getResourceHostId(), containerHostEntity );
-
-                quotaTasks.addTask( cloneTask.getHost(),
-                        new SetQuotaTask( request, ( ResourceHost ) cloneTask.getHost(), containerHostEntity ) );
+                throw new PeerException( String.format( "No reserved network resources found for environment %s",
+                        requestGroup.getEnvironmentId() ) );
             }
-        }
 
-        if ( !quotaTasks.isEmpty() )
+            Set<String> namesToExclude = Sets.newHashSet();
+            for ( ContainerHostInfo containerHostInfo : getNotRegisteredContainers() )
+            {
+                namesToExclude.add( containerHostInfo.getContainerName().toLowerCase() );
+            }
+
+
+            //clone containers
+            HostUtil.Tasks cloneTasks = new HostUtil.Tasks();
+
+            for ( final CloneRequest request : requestGroup.getRequests() )
+            {
+                ResourceHost resourceHost = getResourceHostById( request.getResourceHostId() );
+
+                CloneContainerTask task =
+                        new CloneContainerTask( request, templateManager.getTemplate( request.getTemplateId() ),
+                                resourceHost, reservedNetworkResource, this, namesToExclude );
+
+                cloneTasks.addTask( resourceHost, task );
+            }
+
+            HostUtil.Results cloneResults = hostUtil.execute( cloneTasks, reservedNetworkResource.getEnvironmentId() );
+
+            //register succeeded containers
+
+            for ( HostUtil.Task cloneTask : cloneResults.getTasks().getTasks() )
+            {
+                CloneRequest request = ( ( CloneContainerTask ) cloneTask ).getRequest();
+
+                if ( cloneTask.getTaskState() == HostUtil.Task.TaskState.SUCCEEDED )
+                {
+
+                    final HostInterfaces interfaces = new HostInterfaces();
+
+                    interfaces.addHostInterface( new HostInterfaceModel( Common.DEFAULT_CONTAINER_INTERFACE,
+                            request.getIp().split( "/" )[0] ) );
+
+                    ContainerHostEntity containerHostEntity =
+                            new ContainerHostEntity( getId(), ( ( CloneContainerTask ) cloneTask ).getResult(),
+                                    request.getHostname(), request.getTemplateArch(), interfaces,
+                                    request.getContainerName(), request.getTemplateId(),
+                                    requestGroup.getEnvironmentId(), requestGroup.getOwnerId(),
+                                    requestGroup.getInitiatorPeerId(), request.getContainerQuota(),
+                                    reservedNetworkResource.getVlan() );
+
+                    registerContainer( request.getResourceHostId(), containerHostEntity );
+                }
+            }
+
+            return new CreateEnvironmentContainersResponse( cloneResults, reservedNetworkResource );
+        }
+        finally
         {
-            //set quotas to succeeded containers asynchronously
-            hostUtil.submit( quotaTasks, reservedNetworkResource.getEnvironmentId() );
+            containerCreationCounter.decrementAndGet();
         }
+    }
 
-        return new CreateEnvironmentContainersResponse( cloneResults );
+
+    private boolean isContainerCreationInProgress()
+    {
+        return containerCreationCounter.get() > 0;
     }
 
 
@@ -978,6 +1278,28 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         }
 
         throw new HostNotFoundException( String.format( "Container host not found by id %s", hostId ) );
+    }
+
+
+    @PermitAll
+    @Override
+    public ContainerHost getContainerHostByIp( final String hostIp ) throws HostNotFoundException
+    {
+        Preconditions.checkNotNull( hostIp, "Invalid container host ip" );
+
+        for ( ResourceHost resourceHost : getResourceHosts() )
+        {
+            try
+            {
+                return resourceHost.getContainerHostByIp( hostIp );
+            }
+            catch ( HostNotFoundException e )
+            {
+                //ignore
+            }
+        }
+
+        throw new HostNotFoundException( String.format( "Container host not found by ip %s", hostIp ) );
     }
 
 
@@ -1168,7 +1490,6 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         try
         {
             resourceHost.destroyContainerHost( host );
-            quotaManager.removeQuota( containerId );
         }
         catch ( ResourceHostException e )
         {
@@ -1178,6 +1499,14 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         }
 
         resourceHostDataService.update( ( ResourceHostEntity ) resourceHost );
+
+        //if this container is the last one in its host environment
+        //then cleanup the host environment on local peer to release its reserved resources
+        if ( findContainersByEnvironmentId( host.getEnvironmentId().getId() ).isEmpty() )
+        {
+            //don't remove local peer PEK, it is used for communication with remote peers
+            cleanupEnvironment( host.getEnvironmentId(), !getId().equals( host.getInitiatorPeerId() ) );
+        }
     }
 
 
@@ -1189,19 +1518,25 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         try
         {
             HostInfo hostInfo = hostRegistry.getHostInfoById( hostId.getId() );
-            return hostInfo.getId().equals( hostId.getId() );
+
+            if ( hostInfo.getId().equals( hostId.getId() ) )
+            {
+                return hostInfo instanceof ResourceHostInfo || ContainerHostState.RUNNING
+                        .equals( ( ( ContainerHostInfo ) hostInfo ).getState() );
+            }
         }
-        catch ( HostDisconnectedException e )
+        catch ( HostDisconnectedException ignore )
         {
-            return false;
         }
+
+        return false;
     }
 
 
     @Override
     public ResourceHost getManagementHost() throws HostNotFoundException
     {
-        return getResourceHostByContainerHostName( Common.MANAGEMENT_HOSTNAME );
+        return getResourceHostByContainerName( Common.MANAGEMENT_HOSTNAME );
     }
 
 
@@ -1225,8 +1560,6 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( rhId ) );
 
-        ResourceHost resourceHost = getResourceHostById( rhId );
-
         //remove rh ssl cert
         securityManager.getKeyStoreManager().removeCertFromTrusted( Common.DEFAULT_PUBLIC_SECURE_PORT, rhId );
 
@@ -1237,6 +1570,14 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
         keyManager.removeKeyData( rhId );
 
+        //remove rh from db
+        resourceHostDataService.remove( rhId );
+
+        //remove from host registry cache
+        hostRegistry.removeResourceHost( rhId );
+
+        ResourceHost resourceHost = getResourceHostById( rhId );
+
         //remove rh containers' keys
         for ( final ContainerHost containerHost : resourceHost.getContainerHosts() )
         {
@@ -1245,12 +1586,6 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
         //remove rh from local cache
         resourceHosts.remove( resourceHost );
-
-        //remove rh from db
-        resourceHostDataService.remove( resourceHost.getId() );
-
-        //remove from host registry cache
-        hostRegistry.removeResourceHost( resourceHost.getId() );
     }
 
 
@@ -1373,12 +1708,16 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     }
 
 
-    @Override
-    public void onHeartbeat( final ResourceHostInfo resourceHostInfo, Set<QuotaAlertValue> alerts )
+    public void registerResourceHost( ResourceHostInfo resourceHostInfo )
     {
-        LOG.debug( "On heartbeat: " + resourceHostInfo.getHostname() );
 
-        if ( isInitialized() && !CollectionUtil.isCollectionEmpty( resourceHostInfo.getHostInterfaces().getAll() ) )
+        if ( StringUtils.isBlank( resourceHostInfo.getId() ) )
+        {
+            //handle case when agent sends empty ID after RH update
+            return;
+        }
+
+        if ( isInitialized() && !StringUtils.isBlank( resourceHostInfo.getAddress() ) )
         {
             boolean firstMhRegistration = false;
 
@@ -1411,7 +1750,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
                 {
                     for ( ContainerHostInfo containerHostInfo : resourceHostInfo.getContainers() )
                     {
-                        if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHostInfo.getHostname() ) )
+                        if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHostInfo.getContainerName() ) )
                         {
                             firstMhRegistration = true;
                             break;
@@ -1421,19 +1760,18 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             }
 
             //update host info from heartbeat
-            if ( host.updateHostInfo( resourceHostInfo ) )
-            {
-                resourceHostDataService.update( host );
+            host.updateHostInfo( resourceHostInfo );
 
-                LOG.debug( String.format( "Resource host %s updated.", resourceHostInfo.getHostname() ) );
-            }
+            resourceHostDataService.update( host );
+
+            LOG.debug( String.format( "Resource host %s updated.", resourceHostInfo.getHostname() ) );
 
             if ( firstMhRegistration )
             {
                 //exchange keys with MH container
                 try
                 {
-                    exchangeKeys( host, Common.MANAGEMENT_HOSTNAME );
+                    registerManagementContainer( host );
                 }
                 catch ( Exception e )
                 {
@@ -1443,7 +1781,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
                 //setup security
                 try
                 {
-                    buildAdminHostRelation( getContainerHostByHostName( Common.MANAGEMENT_HOSTNAME ) );
+                    buildAdminHostRelation( getContainerHostByContainerName( Common.MANAGEMENT_HOSTNAME ) );
                 }
                 catch ( Exception e )
                 {
@@ -1455,36 +1793,29 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
 
     @Override
-    public void exchangeKeys( ResourceHost resourceHost, String containerName ) throws PeerException
+    public void onHeartbeat( final ResourceHostInfo resourceHostInfo, Set<QuotaAlertValue> alerts )
+    {
+        LOG.debug( "On heartbeat: " + resourceHostInfo.getHostname() );
+
+        registerResourceHost( resourceHostInfo );
+
+        releaseUpdateLock( resourceHostInfo );
+    }
+
+
+    @Override
+    public void registerManagementContainer( ResourceHost resourceHost ) throws PeerException
     {
         HostRegistrationManager registrationManager = ServiceLocator.lookup( HostRegistrationManager.class );
 
         try
         {
-            String token = registrationManager.generateContainerTTLToken( 30 * 1000L ).getToken();
+            String token = registrationManager.generateContainerToken( 30 * 1000L );
 
-            commandUtil.execute( localPeerCommands.getExchangeKeyCommand( containerName, token ), resourceHost );
+            commandUtil.execute( localPeerCommands.getRegisterManagementContainerCommand( token ), resourceHost );
         }
         catch ( Exception e )
         {
-            throw new PeerException( e );
-        }
-    }
-
-
-    @Override
-    public ProcessResourceUsage getProcessResourceUsage( final ContainerId containerId, int pid ) throws PeerException
-    {
-        Preconditions.checkNotNull( containerId );
-        Preconditions.checkArgument( pid > 0, "Process pid must be greater than 0" );
-
-        try
-        {
-            return monitor.getProcessResourceUsage( containerId, pid );
-        }
-        catch ( MonitorException e )
-        {
-            LOG.error( e.getMessage() );
             throw new PeerException( e );
         }
     }
@@ -1786,9 +2117,6 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     private void buildEnvContainerRelation( final ContainerHostEntity containerHost )
     {
 
-
-        containerHost.getOwnerId();
-
         RelationInfoMeta relationInfoMeta = new RelationInfoMeta( true, true, true, true, Ownership.USER.getLevel() );
         Map<String, String> relationTraits = relationInfoMeta.getRelationTraits();
         relationTraits.put( "containerLimit", "unlimited" );
@@ -1882,7 +2210,8 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             relationTraits.put( "update", "true" );
             relationTraits.put( "delete", "true" );
 
-            if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( host.getHostname() ) )
+            if ( host instanceof ContainerHost && Common.MANAGEMENT_HOSTNAME
+                    .equalsIgnoreCase( ( ( ContainerHost ) host ).getContainerName() ) )
             {
                 relationTraits.put( "managementSupervisor", "true" );
             }
@@ -2032,13 +2361,6 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
 
     @Override
-    public HostInterfaces getInterfaces() throws HostNotFoundException
-    {
-        return getManagementHost().getHostInterfaces();
-    }
-
-
-    @Override
     public synchronized Integer reserveNetworkResource( final NetworkResourceImpl networkResource ) throws PeerException
     {
 
@@ -2075,7 +2397,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
                 int freeVlan = usedNetworkResources.calculateFreeVlan();
                 if ( freeVlan == -1 )
                 {
-                    throw new PeerException( "No free VLANs slots are left" );
+                    throw new PeerException( "No free VLAN slots are left" );
                 }
 
                 NetworkResourceEntity networkResourceEntity = new NetworkResourceEntity( networkResource, freeVlan );
@@ -2187,7 +2509,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             //setup tunnel only if this RH participates in the swarm
             if ( p2pIps.findByRhId( resourceHost.getId() ) != null )
             {
-                tasks.addTask( resourceHost, new TunnelsTask( resourceHost, p2pIps, reservedNetworkResource ) );
+                tasks.addTask( resourceHost, new SetupTunnelsTask( resourceHost, p2pIps, reservedNetworkResource ) );
             }
         }
 
@@ -2203,6 +2525,43 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             LOG.error( errMsg );
 
             throw new PeerException( errMsg, task.getException() );
+        }
+    }
+
+
+    @Override
+    public void deleteTunnels( P2pIps p2pIps, EnvironmentId environmentId ) throws PeerException
+    {
+        Preconditions.checkNotNull( p2pIps, "Invalid peer ips set" );
+        Preconditions.checkNotNull( environmentId, "Invalid environment id" );
+
+        final NetworkResource reservedNetworkResource =
+                getReservedNetworkResources().findByEnvironmentId( environmentId.getId() );
+
+        if ( reservedNetworkResource == null )
+        {
+            throw new PeerException(
+                    String.format( "No reserved network resources found for environment %s", environmentId ) );
+        }
+
+        Set<ResourceHost> resourceHostSet = getResourceHosts();
+
+        HostUtil.Tasks tasks = new HostUtil.Tasks();
+
+        for ( final ResourceHost resourceHost : resourceHostSet )
+        {
+            tasks.addTask( resourceHost, new DeleteTunnelsTask( resourceHost, p2pIps, reservedNetworkResource ) );
+        }
+
+        HostUtil.Results results = hostUtil.execute( tasks, reservedNetworkResource.getEnvironmentId() );
+
+        if ( results.hasFailures() )
+        {
+            String errMsg = "Error deleting tunnels across all RHs: " + results.getFirstFailedTask().getFailureReason();
+
+            LOG.error( errMsg );
+
+            throw new PeerException( errMsg );
         }
     }
 
@@ -2346,6 +2705,12 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     @Override
     public void cleanupEnvironment( final EnvironmentId environmentId ) throws PeerException
     {
+        cleanupEnvironment( environmentId, true );
+    }
+
+
+    private void cleanupEnvironment( EnvironmentId environmentId, boolean removePEK ) throws PeerException
+    {
         Preconditions.checkNotNull( environmentId );
 
         final NetworkResource reservedNetworkResource =
@@ -2387,9 +2752,12 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             //remove PEK
             KeyManager keyManager = securityManager.getKeyManager();
 
-            keyManager.removeKeyData( environmentId.getId() );
+            if ( removePEK )
+            {
+                keyManager.removeKeyData( environmentId.getId() );
 
-            keyManager.removeKeyData( getId() + "_" + environmentId.getId() );
+                keyManager.removeKeyData( getId() + "_" + environmentId.getId() );
+            }
 
             //remove container keys
             Containers containers = getEnvironmentContainers( environmentId );
@@ -2424,11 +2792,99 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
 
     @Override
-    public PeerResources getResourceLimits( final PeerId peerId ) throws PeerException
+    public PeerResources getResourceLimits( PeerId peerId )
     {
-        Preconditions.checkNotNull( peerId );
+        PeerPolicy policy = getPeerManager().getPolicy( peerId.getId() );
+        int environmentLimit = policy.getEnvironmentLimit();
+        int containerLimit = policy.getContainerLimit();
+        int networkLimit = policy.getNetworkUsageLimit();
 
-        return quotaManager.getResourceLimits( peerId.getId() );
+        Set<String> environments = new HashSet<>();
+        final List<ContainerHost> peerContainers = getPeerContainers( peerId.getId() );
+        for ( ContainerHost containerHost : peerContainers )
+        {
+            environments.add( containerHost.getEnvironmentId().getId() );
+        }
+
+        environmentLimit -= environments.size();
+        containerLimit -= peerContainers.size();
+
+        ResourceHostMetrics metrics = getResourceHostMetrics();
+
+        List<HostResources> resources = new ArrayList<>();
+
+        if ( metrics != null )
+        {
+            for ( ResourceHostMetric resourceHostMetric : metrics.getResources() )
+            {
+                try
+                {
+                    ResourceHost resourceHost = getResourceHostByHostName( resourceHostMetric.getHostName() );
+                    BigDecimal[] usedResources = getUsedResources();
+
+                    BigDecimal cpuLimit = getCpuLimit( policy );
+
+                    BigDecimal ramLimit = getRamLimit( new BigDecimal( resourceHostMetric.getTotalRam() ), policy );
+
+                    BigDecimal diskLimit = getDiskLimit( new BigDecimal( resourceHostMetric.getTotalSpace() ), policy );
+
+                    CpuResource cpuResource = new CpuResource( cpuLimit.subtract( usedResources[0] ), 0.0, "UNKNOWN",
+                            resourceHostMetric.getCpuCore(), 0, 0, 0, resourceHostMetric.getCpuFrequency(), 0 );
+
+                    RamResource ramResource = new RamResource( ramLimit.subtract( usedResources[1] ), 0.0 );
+
+                    DiskResource diskResource =
+                            new DiskResource( diskLimit.subtract( usedResources[2] ), 0.0, "UNKNOWN", 0.0, 0.0, false );
+
+
+                    HostResources hostResources =
+                            new HostResources( resourceHost.getId(), cpuResource, ramResource, diskResource );
+                    resources.add( hostResources );
+                }
+                catch ( Exception e )
+                {
+                    // ignore
+                    LOG.warn( e.getMessage() );
+                }
+            }
+        }
+
+        return new PeerResources( getId(), environmentLimit, containerLimit, networkLimit, resources );
+    }
+
+
+    private BigDecimal getRamLimit( final BigDecimal total, final PeerPolicy peerPolicy )
+    {
+        return percentage( total, new BigDecimal( peerPolicy.getMemoryUsageLimit() ) );
+    }
+
+
+    private BigDecimal getDiskLimit( final BigDecimal total, final PeerPolicy peerPolicy )
+    {
+        return percentage( total, new BigDecimal( peerPolicy.getDiskUsageLimit() ) );
+    }
+
+
+    private BigDecimal getCpuLimit( final PeerPolicy peerPolicy )
+    {
+        return percentage( ONE_HUNDRED, new BigDecimal( peerPolicy.getCpuUsageLimit() ) );
+    }
+
+
+    private BigDecimal[] getUsedResources() throws QuotaException
+    {
+        BigDecimal cpuAccumulo = BigDecimal.ZERO;
+        BigDecimal ramAccumulo = BigDecimal.ZERO;
+        BigDecimal diskAccumulo = BigDecimal.ZERO;
+        // todo: extract from DB
+
+        return new BigDecimal[] { cpuAccumulo, ramAccumulo, diskAccumulo };
+    }
+
+
+    private static BigDecimal percentage( BigDecimal base, BigDecimal pct )
+    {
+        return base.multiply( pct ).divide( ONE_HUNDRED, BigDecimal.ROUND_UP );
     }
 
 
@@ -2505,20 +2961,138 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
 
     @Override
-    public ContainerQuota getQuota( final ContainerId containerId ) throws PeerException
+    public Quota getQuota( final ContainerId containerId, ContainerResourceType containerResourceType )
+            throws PeerException
     {
         Preconditions.checkNotNull( containerId );
         try
         {
-            ContainerHost containerHost = getContainerHostById( containerId.getId() );
-            return quotaManager.getQuota( containerHost.getContainerId() );
+            ResourceHost resourceHost = getResourceHostByContainerId( containerId.getId() );
+            CommandResult result = resourceHost
+                    .execute( Commands.getReadQuotaCommand( containerId.getContainerName(), containerResourceType ) );
+            QuotaOutput quotaOutput = mapper.readValue( result.getStdOut(), QuotaOutput.class );
+            ResourceValue resourceValue =
+                    CommonResourceValueParser.parse( quotaOutput.getQuota(), containerResourceType );
+
+            ContainerResource containerResource =
+                    ContainerResourceFactory.createContainerResource( containerResourceType, resourceValue );
+            return new Quota( containerResource, quotaOutput.getThreshold() );
         }
-        catch ( QuotaException e )
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( String.format( "Could not obtain %s quota value of %s.", containerResourceType,
+                    containerId.getId() ) );
+        }
+    }
+
+
+    @Override
+    public io.subutai.common.host.Quota getRawQuota( final ContainerId containerId ) throws PeerException
+    {
+        Preconditions.checkNotNull( containerId );
+
+        try
+        {
+            ContainerHostInfo containerHostInfo =
+                    ( ContainerHostInfo ) hostRegistry.getHostInfoById( containerId.getId() );
+
+            io.subutai.common.host.Quota quota = containerHostInfo.getRawQuota();
+
+            //temp workaround for btrfs quota issue https://github.com/subutai-io/agent/wiki/Switch-to-Soft-Quota
+            return new io.subutai.common.host.Quota( quota.getCpu(), quota.getRam(), quota.getDisk() / 2 );
+        }
+        catch ( Exception e )
         {
             LOG.error( e.getMessage() );
-            throw new PeerException(
-                    String.format( "Could not obtain quota for %s: %s", containerId.getId(), e.getMessage() ) );
+            throw new PeerException( String.format( "Error getting container quota: %s", e.getMessage() ), e );
         }
+    }
+
+
+    @Override
+    public ContainerQuota getQuota( final ContainerId containerId ) throws PeerException
+    {
+        final ContainerHost containerHost = getContainerHostById( containerId.getId() );
+        ContainerQuota containerQuota = new ContainerQuota( containerHost.getContainerSize() );
+        try
+        {
+
+            try
+            {
+                final ContainerHostInfo hostInfo = hostRegistry.getContainerHostInfoById( containerId.getId() );
+                List<Quota> quota = buildQuota( hostInfo.getRawQuota() );
+                containerQuota.addAll( quota );
+            }
+            catch ( Exception e )
+            {
+                ResourceHost resourceHost = getResourceHostByContainerId( containerId.getId() );
+                CommandResult result =
+                        resourceHost.execute( Commands.getReadQuotaCommand( containerHost.getContainerName() ) );
+
+                JavaType type = mapper.getTypeFactory().constructCollectionType( List.class, BatchOutput.class );
+                List<BatchOutput> outputs = mapper.readValue( result.getStdOut(), type );
+
+                for ( int i = 0; i < outputs.size(); i++ )
+                {
+                    QuotaOutput quotaOutput = outputs.get( i ).getOutput();
+
+                    ContainerResourceType containerResourceType = ContainerResourceType.values()[i];
+
+                    ResourceValue resourceValue =
+                            CommonResourceValueParser.parse( quotaOutput.getQuota(), containerResourceType );
+
+
+                    ContainerResource containerResource =
+                            ContainerResourceFactory.createContainerResource( containerResourceType, resourceValue );
+
+                    containerQuota.add( new Quota( containerResource, quotaOutput.getThreshold() ) );
+                }
+            }
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( String.format( "Could not obtain quota values of %s.", containerId.getId() ) );
+        }
+
+        //temp workaround for btrfs quota issue https://github.com/subutai-io/agent/wiki/Switch-to-Soft-Quota
+        if ( containerQuota.getContainerSize() == ContainerSize.CUSTOM )
+        {
+
+            containerQuota.add( new Quota( new ContainerDiskResource(
+                    containerQuota.get( ContainerResourceType.DISK ).getAsDiskResource().longValue( ByteUnit.GB ) / 2,
+                    ByteUnit.GB ), 0 ) );
+        }
+
+        return containerQuota;
+    }
+
+
+    private List<Quota> buildQuota( final io.subutai.common.host.Quota rawQuota )
+    {
+        // TODO: 2/17/17 add quota thresholds after implementing in system level
+        List<Quota> result = new ArrayList<>();
+
+        if ( rawQuota.getCpu() != null )
+        {
+            Quota cpuQuota = new Quota( new ContainerCpuResource( rawQuota.getCpu() ), 0 );
+            result.add( cpuQuota );
+        }
+
+        if ( rawQuota.getRam() != null )
+        {
+            Quota ramQuota = new Quota( new ContainerRamResource( rawQuota.getRam(), ByteUnit.MB ), 0 );
+            result.add( ramQuota );
+        }
+
+        if ( rawQuota.getDisk() != null )
+        {
+            Quota diskQuota = new Quota( new ContainerDiskResource( rawQuota.getDisk(), ByteUnit.GB ), 0 );
+            result.add( diskQuota );
+        }
+
+        return result;
     }
 
 
@@ -2527,42 +3101,36 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     {
         Preconditions.checkNotNull( containerId );
         Preconditions.checkNotNull( containerQuota );
+
+        ContainerQuota quota = ContainerSize.getDefaultContainerQuota( containerQuota.getContainerSize() );
+        // CUSTOM value of container size returns null quota
+        if ( quota == null )
+        {
+            quota = ContainerSize.getDefaultContainerQuota( ContainerSize.SMALL );
+        }
+
+        if ( containerQuota.getContainerSize() == ContainerSize.CUSTOM || quota.getAll().isEmpty() )
+        {
+            quota.copyValues( containerQuota );
+        }
+
         try
         {
             ContainerHost containerHost = getContainerHostById( containerId.getId() );
-            quotaManager.setQuota( containerHost.getContainerId(), containerQuota );
-        }
-        catch ( QuotaException e )
-        {
-            LOG.error( e.getMessage() );
-            throw new PeerException(
-                    String.format( "Could not set quota for %s: %s", containerId.getId(), e.getMessage() ) );
-        }
-    }
-
-
-    @Override
-    public void setContainerSize( final ContainerId containerHostId, final ContainerSize containerSize )
-            throws PeerException
-    {
-        Preconditions.checkNotNull( containerHostId );
-        Preconditions.checkNotNull( containerSize );
-
-        try
-        {
-            ContainerHost containerHost = getContainerHostById( containerHostId.getId() );
 
             ResourceHost resourceHost = getResourceHostById( containerHost.getResourceHostId().getId() );
 
-            resourceHost.setContainerSize( containerHost, containerSize );
+            resourceHost.setContainerQuota( containerHost, quota );
+
+            containerHost.setContainerSize( quota.getContainerSize() );
 
             resourceHostDataService.update( ( ResourceHostEntity ) resourceHost );
         }
         catch ( Exception e )
         {
             LOG.error( e.getMessage() );
-            throw new PeerException( String.format( "Could not set container size for %s: %s", containerHostId.getId(),
-                    e.getMessage() ) );
+            throw new PeerException(
+                    String.format( "Could not set container quota for %s: %s", containerId.getId(), e.getMessage() ) );
         }
     }
 
@@ -2655,57 +3223,22 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
 
     @Override
-    public void addReverseProxy( final ReverseProxyConfig reverseProxyConfig ) throws PeerException
-    {
-        Preconditions.checkNotNull( reverseProxyConfig, "Invalid proxy config" );
-
-
-        ContainerHost containerHost = getContainerHostById( reverseProxyConfig.getContainerId() );
-
-        final NetworkResource networkResource =
-                getReservedNetworkResources().findByEnvironmentId( containerHost.getEnvironmentId().getId() );
-
-        if ( networkResource == null )
-        {
-            throw new PeerException( "Network resources not found." );
-        }
-
-        final HostInterface netInterface = containerHost.getInterfaceByName( Common.DEFAULT_CONTAINER_INTERFACE );
-
-        if ( netInterface instanceof NullHostInterface )
-        {
-            throw new PeerException( "Container network interface is null." );
-        }
-
-        try
-        {
-            getNetworkManager().removeVlanDomain( networkResource.getVlan() );
-            getNetworkManager().setVlanDomain( networkResource.getVlan(), reverseProxyConfig.getDomainName(),
-                    reverseProxyConfig.getLoadBalanceStrategy(), reverseProxyConfig.getSslCertPath() );
-            getNetworkManager().addIpToVlanDomain( netInterface.getIp(), networkResource.getVlan() );
-        }
-        catch ( Exception e )
-        {
-            LOG.error( e.getMessage(), e );
-            throw new PeerException( String.format( "Error on adding reverse proxy: %s", e.getMessage() ) );
-        }
-    }
-
-
-    @Override
     public void setContainerHostname( final ContainerId containerId, final String hostname ) throws PeerException
     {
         Preconditions.checkNotNull( containerId, "Invalid container id" );
-        Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ), "Invalid hostname" );
 
         ContainerHost containerHost = getContainerHostById( containerId.getId() );
+
+        String newHostname = StringUtil.removeHtmlAndSpecialChars( hostname, true );
+
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( newHostname ), "Invalid hostname" );
 
         //check if container with new hostname already exists on peer
         try
         {
-            getContainerHostByHostName( hostname );
+            getContainerHostByHostName( newHostname );
 
-            throw new PeerException( String.format( "Container with hostname %s already exists", hostname ) );
+            throw new PeerException( String.format( "Container with hostname %s already exists", newHostname ) );
         }
         catch ( HostNotFoundException ignore )
         {
@@ -2716,13 +3249,50 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         {
             ResourceHost resourceHost = getResourceHostById( containerHost.getResourceHostId().getId() );
 
-            resourceHost.setContainerHostname( containerHost, hostname );
+            resourceHost.setContainerHostname( containerHost, newHostname );
         }
         catch ( Exception e )
         {
             LOG.error( e.getMessage(), e );
             throw new PeerException(
                     String.format( "Error setting container %s hostname: %s", containerId.getId(), e.getMessage() ) );
+        }
+    }
+
+
+    @Override
+    public void setRhHostname( final String rhId, final String hostname ) throws PeerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( rhId ), "Invalid RH id" );
+
+        ResourceHost resourceHost = getResourceHostById( rhId );
+
+        String newHostname = StringUtil.removeHtmlAndSpecialChars( hostname, true );
+
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( newHostname ), "Invalid hostname" );
+
+
+        //check if RH with new hostname already exists on peer
+        try
+        {
+            getResourceHostByHostName( newHostname );
+
+            throw new PeerException( String.format( "RH with hostname %s already exists", newHostname ) );
+        }
+        catch ( HostNotFoundException ignore )
+        {
+            //ignore since all is ok
+        }
+
+        try
+        {
+            resourceHost.setHostname( newHostname );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException(
+                    String.format( "Error setting RH %s hostname: %s", resourceHost.getId(), e.getMessage() ) );
         }
     }
 
@@ -2766,12 +3336,14 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
     @Override
     public void updateAuthorizedKeysWithNewContainerHostname( final EnvironmentId environmentId,
-                                                              final String oldHostname, final String newHostname )
+                                                              final String oldHostname, final String newHostname,
+                                                              final SshEncryptionType sshEncryptionType )
             throws PeerException
     {
         Preconditions.checkNotNull( environmentId );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( oldHostname ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( newHostname ) );
+        Preconditions.checkNotNull( sshEncryptionType );
 
         Set<Host> hosts = Sets.newHashSet();
 
@@ -2780,6 +3352,25 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         if ( hosts.isEmpty() )
         {
             return;
+        }
+
+        for ( Host containerHost : hosts )
+        {
+            if ( containerHost.getHostname().equalsIgnoreCase( newHostname ) )
+            {
+                try
+                {
+                    commandUtil.execute( localPeerCommands
+                                    .getChangeHostnameInSshPubKeyCommand( oldHostname, newHostname, sshEncryptionType ),
+                            containerHost );
+                }
+                catch ( CommandException e )
+                {
+                    LOG.error( "Error updating ssh pub key with hostname change: {}", e.getMessage() );
+                }
+
+                break;
+            }
         }
 
         CommandUtil.HostCommandResults results = commandUtil
@@ -2860,7 +3451,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
                 }
             }
 
-            if ( registered )
+            if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHostInfo.getContainerName() ) || registered )
             {
                 iterator.remove();
             }
@@ -2934,7 +3525,7 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
             for ( ContainerHost containerHost : resourceHost.getContainerHosts() )
             {
                 if ( unregisteredPeers.contains( containerHost.getInitiatorPeerId() ) && !Common.MANAGEMENT_HOSTNAME
-                        .equalsIgnoreCase( containerHost.getHostname() ) )
+                        .equalsIgnoreCase( containerHost.getContainerName() ) )
                 {
                     result.add( containerHost );
                 }
@@ -3007,7 +3598,18 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
 
         PeerTemplatesDownloadProgress peerProgress = new PeerTemplatesDownloadProgress( getId() );
 
-        for ( ResourceHost resourceHost : getResourceHosts() )
+        List<ResourceHost> resourceHosts = Lists.newArrayList( getResourceHosts() );
+
+        Collections.sort( resourceHosts, new Comparator<ResourceHost>()
+        {
+            @Override
+            public int compare( final ResourceHost o1, final ResourceHost o2 )
+            {
+                return o1.getId().compareTo( o2.getId() );
+            }
+        } );
+
+        for ( ResourceHost resourceHost : resourceHosts )
         {
             RhTemplatesDownloadProgress rhProgress = resourceHost.getTemplateDownloadProgress( environmentId.getId() );
 
@@ -3021,6 +3623,61 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
         return peerProgress;
     }
 
+
+    @Override
+    public PeerTemplatesUploadProgress getTemplateUploadProgress( final String templateName ) throws PeerException
+    {
+        Preconditions.checkNotNull( templateName, "Invalid template name" );
+
+        PeerTemplatesUploadProgress peerProgress = new PeerTemplatesUploadProgress( getId() );
+
+        List<ResourceHost> resourceHosts = Lists.newArrayList( getResourceHosts() );
+
+        Collections.sort( resourceHosts, new Comparator<ResourceHost>()
+        {
+            @Override
+            public int compare( final ResourceHost o1, final ResourceHost o2 )
+            {
+                return o1.getId().compareTo( o2.getId() );
+            }
+        } );
+
+        for ( ResourceHost resourceHost : resourceHosts )
+        {
+            RhTemplatesUploadProgress rhProgress = resourceHost.getTemplateUploadProgress( templateName );
+
+            //add only RH with existing progress
+            if ( !rhProgress.getTemplatesUploadProgresses().isEmpty() )
+            {
+                peerProgress.addTemplateUploadProgress( rhProgress );
+            }
+        }
+
+        return peerProgress;
+    }
+
+
+    @Override
+    public void exportTemplate( final ContainerId containerId, final String templateName, final String version,
+                                final boolean isPrivateTemplate, final String token ) throws PeerException
+    {
+        Preconditions.checkNotNull( containerId, "Invalid container id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( version ), "Invalid version" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( token ), "Invalid token" );
+
+        ResourceHost resourceHost = getResourceHostByContainerId( containerId.getId() );
+
+        try
+        {
+            resourceHost
+                    .exportTemplate( containerId.getContainerName(), templateName, version, isPrivateTemplate, token );
+        }
+        catch ( ResourceHostException e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( String.format( "Error exporting template: %s", e.getMessage() ) );
+        }
+    }
 
     //**************************
 
@@ -3082,6 +3739,380 @@ public class LocalPeerImpl implements LocalPeer, HostListener, Disposable
     public String getKeyId()
     {
         return getId();
+    }
+
+
+    public void addListener( LocalPeerEventListener listener )
+    {
+        if ( listener != null )
+        {
+            peerEventListeners.add( listener );
+        }
+    }
+
+
+    public void removeListener( LocalPeerEventListener listener )
+    {
+        if ( listener != null )
+        {
+            peerEventListeners.remove( listener );
+        }
+    }
+
+
+    private void removeStaleContainers()
+    {
+        for ( ResourceHost resourceHost : getResourceHosts() )
+        {
+            if ( !resourceHost.isConnected() )
+            {
+                continue;
+            }
+
+            //destroy containers that are registered with Console but don't have environments
+            Set<ContainerHost> containersWithoutEnvironment = Sets.newHashSet();
+            try
+            {
+                ReservedNetworkResources reservedNetworkResources = getReservedNetworkResources();
+
+                for ( ContainerHost containerHost : resourceHost.getContainerHosts() )
+                {
+                    if ( reservedNetworkResources.findByEnvironmentId( containerHost.getEnvId() ) == null
+                            && !Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHost.getContainerName() ) )
+                    {
+                        containersWithoutEnvironment.add( containerHost );
+                    }
+                }
+            }
+            catch ( Exception e )
+            {
+                LOG.error( e.getMessage() );
+            }
+
+            //destroy container without environments
+            for ( ContainerHost containerHost : containersWithoutEnvironment )
+            {
+                try
+                {
+                    destroyContainer( containerHost.getContainerId() );
+                }
+                catch ( PeerException e )
+                {
+                    LOG.error( e.getMessage() );
+                }
+            }
+
+            try
+            {
+                Set<ContainerInfo> existingContainers = resourceHost.listExistingContainersInfo();
+
+                //remove stale containers (the ones that are registered with Console but not present on RH)
+                for ( ContainerHost containerHost : resourceHost.getContainerHosts() )
+                {
+                    boolean isContainerEligibleForRemoval = containerHost.getState() == ContainerHostState.UNKNOWN &&
+                            ( System.currentTimeMillis() - ( ( ContainerHostEntity ) containerHost )
+                                    .getLastHeartbeat() ) > TimeUnit.MINUTES.toMillis( 60 )
+                            && !Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHost.getContainerName() );
+
+                    if ( !isContainerEligibleForRemoval )
+                    {
+                        continue;
+                    }
+
+                    boolean found = false;
+
+                    for ( ContainerInfo containerInfo : existingContainers )
+                    {
+                        if ( containerHost.getContainerName().equalsIgnoreCase( containerInfo.getName() ) )
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if ( !found )
+                    {
+                        LOG.warn( "Removing stale container {}", containerHost.getContainerName() );
+
+                        resourceHost.removeContainerHost( containerHost );
+
+                        notifyPeerEventListeners( containerHost );
+                    }
+                }
+
+
+                // destroy dead containers (the ones that exist on RH but not appearing in heartbeats and
+                // have a STOPPED state )
+                Set<String> deadContainerNames = Sets.newHashSet();
+                for ( ContainerInfo containerInfo : existingContainers )
+                {
+                    if ( !Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerInfo.getName() )
+                            && ContainerHostState.STOPPED.equals( containerInfo.getState() ) )
+                    {
+                        try
+                        {
+                            hostRegistry.getContainerHostInfoByContainerName( containerInfo.getName() );
+                        }
+                        catch ( HostDisconnectedException e )
+                        {
+                            deadContainerNames.add( containerInfo.getName() );
+                        }
+                    }
+                }
+
+                //destroy dead containers
+                for ( String deadContainerName : deadContainerNames )
+                {
+                    //do additional check
+                    try
+                    {
+                        resourceHost.getContainerHostByContainerName( deadContainerName );
+                    }
+                    catch ( HostNotFoundException e )
+                    {
+                        try
+                        {
+                            commandExecutor.execute( resourceHost.getId(),
+                                    localPeerCommands.getDestroyContainerCommand( deadContainerName ) );
+                        }
+                        catch ( CommandException e1 )
+                        {
+                            LOG.error( e1.getMessage() );
+                        }
+                    }
+                }
+            }
+            catch ( ResourceHostException e )
+            {
+                LOG.error( e.getMessage() );
+            }
+
+
+            //destroy lost environments (the ones that are present on RH but not registered with Console)
+            Set<Integer> lostEnvironmentsVlans = Sets.newHashSet();
+            try
+            {
+
+                Set<String> p2pIfNames = resourceHost.getUsedP2pIfaceNames();
+                ReservedNetworkResources reservedNetworkResources = getReservedNetworkResources();
+
+                for ( String p2pIfName : p2pIfNames )
+                {
+                    int vlan = Integer.valueOf( p2pIfName.replace( Common.P2P_INTERFACE_PREFIX, "" ) );
+                    NetworkResource networkResource = reservedNetworkResources.findByVlan( vlan );
+                    if ( networkResource == null )
+                    {
+                        lostEnvironmentsVlans.add( vlan );
+                    }
+                }
+            }
+            catch ( Exception e )
+            {
+                LOG.error( e.getMessage() );
+            }
+
+            for ( Integer vlan : lostEnvironmentsVlans )
+            {
+                try
+                {
+                    LOG.warn( "Removing lost environment, vlan = {}", vlan );
+
+                    resourceHost.cleanup( null, vlan );
+                }
+                catch ( ResourceHostException e )
+                {
+                    LOG.error( e.getMessage() );
+                }
+            }
+
+
+            //destroy lost containers (the ones that are present on RH but not registered with Console)
+            //a) filter out lost ones
+            Set<ContainerHostInfo> lostContainers = Sets.newHashSet();
+            try
+            {
+                ResourceHostInfo resourceHostInfo = hostRegistry.getResourceHostInfoById( resourceHost.getId() );
+
+                //consider only containers that got cached not less than 30 min ago
+                if ( System.currentTimeMillis() - ( ( ResourceHostInfoModel ) resourceHostInfo ).getDateCreated()
+                        > TimeUnit.MINUTES.toMillis( 60 ) )
+
+                {
+                    for ( ContainerHostInfo containerHostInfo : resourceHostInfo.getContainers() )
+                    {
+                        try
+                        {
+                            resourceHost.getContainerHostById( containerHostInfo.getId() );
+                        }
+                        catch ( HostNotFoundException ignore )
+                        {
+                            if ( !( resourceHost.isManagementHost() && Common.MANAGEMENT_HOSTNAME
+                                    .equalsIgnoreCase( containerHostInfo.getContainerName().trim() ) ) )
+                            {
+                                lostContainers.add( containerHostInfo );
+                            }
+                        }
+                    }
+                }
+            }
+            catch ( Exception e )
+            {
+                LOG.error( e.getMessage() );
+            }
+
+            //b) ignore manually created containers
+            for ( Iterator<ContainerHostInfo> iterator = lostContainers.iterator(); iterator.hasNext(); )
+            {
+                ContainerHostInfo lostContainer = iterator.next();
+
+                //filter out containers created by system, not by user
+                try
+                {
+                    //system containers should have both vlan and envId
+                    if ( lostContainer.getVlan() == null || lostContainer.getEnvId() == null )
+                    {
+                        iterator.remove();
+                    }
+                }
+                catch ( Exception e )
+                {
+                    iterator.remove();
+                    LOG.error( e.getMessage() );
+                }
+            }
+
+            //skip cleanup in case an environment workflow is in progress since this can lead to inconsistency
+            if ( isContainerCreationInProgress() )
+            {
+                continue;
+            }
+
+            //c) destroy lost containers
+            for ( ContainerHostInfo lostContainer : lostContainers )
+            {
+                try
+                {
+                    //do additional check here
+                    try
+                    {
+                        resourceHost.getContainerHostById( lostContainer.getId() );
+                    }
+                    catch ( HostNotFoundException e )
+                    {
+                        LOG.warn( "Removing lost container {}", lostContainer.getContainerName() );
+
+                        ( ( ResourceHostEntity ) resourceHost ).destroyContainer( lostContainer.getId() );
+                    }
+                }
+                catch ( CommandException e )
+                {
+                    LOG.error( e.getMessage() );
+                }
+            }
+
+
+            //cleanup empty environments (the ones with no containers on RH)
+            //a) filter out net resources missing on this RH
+            Set<NetworkResource> missingNetResources = Sets.newHashSet();
+            try
+            {
+                missingNetResources = getReservedNetworkResources().getNetworkResources();
+
+                for ( Iterator<NetworkResource> iterator = missingNetResources.iterator(); iterator.hasNext(); )
+                {
+                    final NetworkResourceEntity networkResource = ( NetworkResourceEntity ) iterator.next();
+
+                    boolean found = false;
+
+                    for ( ContainerHost containerHost : resourceHost.getContainerHosts() )
+                    {
+
+                        if ( Objects.equals( containerHost.getEnvironmentId().getId(),
+                                networkResource.getEnvironmentId() ) )
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if ( found || System.currentTimeMillis() - networkResource.getDateCreated() < TimeUnit.DAYS
+                            .toMillis( 7 ) )
+                    {
+                        //don't cleanup the found ones and the ones that are created less than 7 days ago
+                        iterator.remove();
+                    }
+                }
+            }
+            catch ( PeerException e )
+            {
+                LOG.error( e.getMessage() );
+            }
+
+
+            //skip cleanup in case an environment workflow is in progress since this can lead to inconsistency
+            if ( isContainerCreationInProgress() )
+            {
+                continue;
+            }
+
+            //b) cleanup empty environments
+            for ( NetworkResource networkResource : missingNetResources )
+            {
+                //do additional check
+                if ( resourceHost.getContainerHostsByEnvironmentId( networkResource.getEnvironmentId() ).isEmpty() )
+                {
+                    try
+                    {
+                        LOG.warn( "Removing empty environment, vlan = {}", networkResource.getVlan() );
+
+                        resourceHost.cleanup( null, networkResource.getVlan() );
+                    }
+                    catch ( ResourceHostException e )
+                    {
+                        LOG.error( e.getMessage() );
+                    }
+                }
+            }
+        }
+    }
+
+
+    private void notifyPeerEventListeners( final ContainerHost containerHost )
+    {
+        for ( final LocalPeerEventListener eventListener : peerEventListeners )
+        {
+            threadPool.execute( new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    try
+                    {
+                        eventListener.onContainerDestroyed( containerHost );
+                    }
+                    catch ( Exception e )
+                    {
+                        LOG.warn( "Error notifying LocalPeerEventListener: {}", e.getMessage() );
+                    }
+                }
+            } );
+        }
+    }
+
+
+    //on heartbeat we may consider RH update as complete
+    //because it either arrives right before agent shutdown or upon agent startup
+    private void releaseUpdateLock( ResourceHostInfo resourceHostInfo )
+    {
+        try
+        {
+            ResourceHostEntity resourceHost = ( ResourceHostEntity ) getResourceHostById( resourceHostInfo.getId() );
+            resourceHost.markUpdateAsCompleted();
+        }
+        catch ( Exception e )
+        {
+            //ignore
+        }
     }
 }
 

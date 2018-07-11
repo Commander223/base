@@ -7,10 +7,9 @@ import org.apache.karaf.shell.commands.Command;
 import io.subutai.core.identity.rbac.cli.SubutaiShellCommandSupport;
 import io.subutai.core.registration.api.HostRegistrationManager;
 import io.subutai.core.registration.api.exception.HostRegistrationException;
-import io.subutai.core.registration.api.service.ContainerToken;
 
 
-@Command( scope = "node", name = "verify", description = "Verifies container token" )
+@Command( scope = "host", name = "verify", description = "Verifies container token" )
 public class VerifyContainerToken extends SubutaiShellCommandSupport
 {
     @Argument( index = 0, name = "token", multiValued = false, required = true, description = "Token" )
@@ -37,9 +36,8 @@ public class VerifyContainerToken extends SubutaiShellCommandSupport
     {
         try
         {
-            ContainerToken containerToken = registrationManager.verifyToken( token, containerHostId, publicKey );
-            System.out.println( String.format( "Container id: %s", containerToken.getHostId() ) );
-            System.out.println( String.format( "Token       : %s", containerToken.getToken() ) );
+            boolean valid = registrationManager.verifyTokenAndRegisterKey( token, containerHostId, publicKey );
+            System.out.println( String.format( "Token valid =  %s", valid ) );
         }
         catch ( HostRegistrationException ex )
         {

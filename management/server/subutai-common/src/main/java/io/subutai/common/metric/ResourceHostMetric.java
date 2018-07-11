@@ -103,7 +103,9 @@ public class ResourceHostMetric extends BaseMetric
     @JsonIgnore
     public Double getAvailableRam()
     {
-        return ram != null && ram.free != null ? ram.free : 0;
+        double free = ram != null && ram.free != null ? ram.free : 0;
+        double cached = ram != null && ram.cached != null ? ram.cached : 0;
+        return free + cached;
     }
 
 
@@ -114,11 +116,19 @@ public class ResourceHostMetric extends BaseMetric
         return cpu != null ? 100 - cpu.idle : null;
     }
 
+
     @JsonIgnore
     public Double getCpuIdle()
     {
 
         return cpu != null ? cpu.idle : null;
+    }
+
+
+    @JsonIgnore
+    public Double getAvailableCpu()
+    {
+        return 100 - ( getUsedCpu() == null ? 100 : getUsedCpu() );
     }
 
 
@@ -132,7 +142,7 @@ public class ResourceHostMetric extends BaseMetric
     @JsonIgnore
     public int getCpuCore()
     {
-        return cpu != null ? cpu.coreCount : 0;
+        return cpu != null ? cpu.coreCount : 1;
     }
 
 
@@ -181,7 +191,8 @@ public class ResourceHostMetric extends BaseMetric
         this.hostName = resourceHostMetric.hostName;
         this.cpu = resourceHostMetric.cpu;
         this.ram = new Ram( resourceHostMetric.ram.total != null ? resourceHostMetric.ram.total : 0.0,
-                resourceHostMetric.ram.free != null ? resourceHostMetric.ram.free : 0.0 );
+                resourceHostMetric.ram.free != null ? resourceHostMetric.ram.free : 0.0,
+                resourceHostMetric.ram.cached != null ? resourceHostMetric.ram.cached : 0.0 );
 
         this.disk = new Disk( resourceHostMetric.ram.total != null ? resourceHostMetric.ram.total : 0.0,
                 resourceHostMetric.disk.used != null ? resourceHostMetric.disk.used : 0.0 );

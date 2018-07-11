@@ -13,6 +13,7 @@ import io.subutai.common.host.ResourceHostInfo;
  */
 public interface HostRegistry
 {
+    int HOST_EXPIRATION_SEC = 30;
 
     /**
      * Updates timestamp of resource host cache entry so that it does not get evicted
@@ -127,5 +128,4 @@ public interface HostRegistry
 
     void removeResourceHost( String id );
 
-    String getResourceHostIp( ResourceHostInfo resourceHostInfo );
 }

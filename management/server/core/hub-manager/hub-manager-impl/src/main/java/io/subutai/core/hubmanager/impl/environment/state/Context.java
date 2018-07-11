@@ -2,9 +2,10 @@ package io.subutai.core.hubmanager.impl.environment.state;
 
 
 import io.subutai.common.peer.LocalPeer;
+import io.subutai.core.desktop.api.DesktopManager;
 import io.subutai.core.environment.api.EnvironmentManager;
-import io.subutai.core.hubmanager.impl.http.HubRestClient;
-import io.subutai.core.hubmanager.impl.processor.EnvironmentUserHelper;
+import io.subutai.core.hubmanager.api.RestClient;
+import io.subutai.core.hubmanager.impl.util.EnvironmentUserHelper;
 import io.subutai.core.identity.api.IdentityManager;
 
 
@@ -18,11 +19,13 @@ public class Context
 
     public final LocalPeer localPeer;
 
-    public final HubRestClient restClient;
+    public final RestClient restClient;
+
+    public final DesktopManager desktopManager;
 
 
-    public Context( IdentityManager identityManager, EnvironmentManager envManager, EnvironmentUserHelper envUserHelper, LocalPeer localPeer,
-                    HubRestClient restClient )
+    public Context( IdentityManager identityManager, EnvironmentManager envManager, EnvironmentUserHelper envUserHelper,
+                    LocalPeer localPeer, RestClient restClient, DesktopManager desktopManager )
     {
         this.identityManager = identityManager;
 
@@ -33,5 +36,7 @@ public class Context
         this.localPeer = localPeer;
 
         this.restClient = restClient;
+
+        this.desktopManager = desktopManager;
     }
 }

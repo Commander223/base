@@ -14,14 +14,15 @@ import io.subutai.common.environment.EnvironmentNotFoundException;
 import io.subutai.common.environment.HostAddresses;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.EnvironmentId;
+import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.security.SshKey;
 import io.subutai.common.security.SshKeys;
 import io.subutai.common.settings.Common;
+import io.subutai.core.hubmanager.api.RestResult;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.hubmanager.impl.environment.state.Context;
 import io.subutai.core.hubmanager.impl.environment.state.StateHandler;
-import io.subutai.core.hubmanager.impl.http.RestResult;
 import io.subutai.hub.share.dto.environment.EnvironmentDto;
 import io.subutai.hub.share.dto.environment.EnvironmentNodeDto;
 import io.subutai.hub.share.dto.environment.EnvironmentNodesDto;
@@ -44,16 +45,23 @@ public class ConfigureContainerStateHandler extends StateHandler
         {
             logStart();
 
-            EnvironmentDto envDto =
-                    ctx.restClient.getStrict( path( "/rest/v1/environments/%s", peerDto ), EnvironmentDto.class );
+            EnvironmentDto envDto =ctx.restClient.getStrict( path( "/rest/v1/environments/%s", peerDto ), EnvironmentDto.class );
 
             peerDto = configureSsh( peerDto, envDto );
 
             configureHosts( envDto );
 
+            changeHostNames( envDto );
+
+            setQuotas( envDto );
+
             logEnd();
 
             return peerDto;
+        }
+        catch ( HubManagerException e )
+        {
+            throw e;
         }
         catch ( Exception e )
         {
@@ -89,7 +97,6 @@ public class ConfigureContainerStateHandler extends StateHandler
 
             boolean isSsEnv = environment != null && !Common.HUB_ID.equals( environment.getPeerId() );
 
-
             Set<String> peerSshKeys = getCurrentSshKeys( envId, isSsEnv );
 
             Set<String> hubSshKeys = new HashSet<>();
@@ -117,9 +124,13 @@ public class ConfigureContainerStateHandler extends StateHandler
             //add new keys
             Set<String> newKeys = new HashSet<>();
 
-            newKeys.addAll( hubSshKeys );
+            if ( isSsEnv )
+            {
+                //for SS env no need to duplicate keys, it will add to Environment entity
+                hubSshKeys.removeAll( peerSshKeys );
+            }
 
-            newKeys.removeAll( peerSshKeys );
+            newKeys.addAll( hubSshKeys );
 
             if ( newKeys.isEmpty() )
             {
@@ -280,6 +291,61 @@ public class ConfigureContainerStateHandler extends StateHandler
         catch ( Exception e )
         {
             log.error( "Error configuring hosts: {}", e.getMessage() );
+        }
+    }
+
+
+    private void changeHostNames( EnvironmentDto envDto )
+    {
+        for ( EnvironmentNodesDto nodesDto : envDto.getNodes() )
+        {
+            for ( EnvironmentNodeDto nodeDto : nodesDto.getNodes() )
+            {
+                try
+                {
+                    ContainerHost ch = ctx.localPeer.getContainerHostById( nodeDto.getContainerId() );
+
+                    if ( !ch.getHostname().equals( nodeDto.getHostName() ) )
+                    {
+                        ctx.localPeer.setContainerHostname( ch.getContainerId(), nodeDto.getHostName() );
+                    }
+                }
+                catch ( HostNotFoundException ignore )
+                {
+                    //this is a remote container
+                    //no-op
+                }
+                catch ( Exception e )
+                {
+                    log.error( "Error configuring hostnames: {}", e.getMessage() );
+                }
+            }
+        }
+    }
+
+
+    private void setQuotas( EnvironmentDto envDto )
+    {
+        for ( EnvironmentNodesDto nodesDto : envDto.getNodes() )
+        {
+            for ( EnvironmentNodeDto nodeDto : nodesDto.getNodes() )
+            {
+                try
+                {
+                    ContainerHost ch = ctx.localPeer.getContainerHostById( nodeDto.getContainerId() );
+
+                    ctx.localPeer.setQuota( ch.getContainerId(), nodeDto.getContainerQuota() );
+                }
+                catch ( HostNotFoundException ignore )
+                {
+                    //this is a remote container
+                    //no-op
+                }
+                catch ( Exception e )
+                {
+                    log.error( "Error setting quotas: {}", e.getMessage() );
+                }
+            }
         }
     }
 }

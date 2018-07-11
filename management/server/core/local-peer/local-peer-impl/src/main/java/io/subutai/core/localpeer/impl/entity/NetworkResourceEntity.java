@@ -8,6 +8,7 @@ import javax.persistence.Entity;
 import javax.persistence.Id;
 import javax.persistence.Table;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -49,6 +50,18 @@ public class NetworkResourceEntity implements NetworkResource
     @JsonProperty( "initiatorPeerId" )
     private String initiatorPeerId;
 
+    @Column( name = "username" )
+    @JsonProperty( "username" )
+    private String username;
+
+    @Column( name = "userId" )
+    @JsonProperty( "userId" )
+    private String userId;
+
+    @Column( name = "dateCreated" )
+    @JsonIgnore
+    private Long dateCreated = System.currentTimeMillis();
+
 
     protected NetworkResourceEntity()
     {
@@ -66,6 +79,9 @@ public class NetworkResourceEntity implements NetworkResource
         this.containerSubnet = IPUtil.getNetworkAddress( networkResource.getContainerSubnet() );
         this.vlan = vlan;
         this.initiatorPeerId = networkResource.getInitiatorPeerId();
+        this.username = networkResource.getUsername();
+        this.userId = networkResource.getUserId();
+        this.dateCreated = System.currentTimeMillis();
     }
 
 
@@ -74,7 +90,9 @@ public class NetworkResourceEntity implements NetworkResource
                                   @JsonProperty( "p2pSubnet" ) final String p2pSubnet,
                                   @JsonProperty( "containerSubnet" ) final String containerSubnet,
                                   @JsonProperty( "vlan" ) final int vlan,
-                                  @JsonProperty( "initiatorPeerId" ) final String initiatorPeerId )
+                                  @JsonProperty( "initiatorPeerId" ) final String initiatorPeerId,
+                                  @JsonProperty( "username" ) final String username,
+                                  @JsonProperty( "userId" ) final String userId )
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( p2pSubnet ) );
@@ -88,6 +106,15 @@ public class NetworkResourceEntity implements NetworkResource
         this.containerSubnet = containerSubnet;
         this.vlan = vlan;
         this.initiatorPeerId = initiatorPeerId;
+        this.username = username;
+        this.userId = userId;
+        this.dateCreated = System.currentTimeMillis();
+    }
+
+
+    public Long getDateCreated()
+    {
+        return dateCreated;
     }
 
 
@@ -130,6 +157,20 @@ public class NetworkResourceEntity implements NetworkResource
     public String getInitiatorPeerId()
     {
         return initiatorPeerId;
+    }
+
+
+    @Override
+    public String getUsername()
+    {
+        return username;
+    }
+
+
+    @Override
+    public String getUserId()
+    {
+        return userId;
     }
 
 

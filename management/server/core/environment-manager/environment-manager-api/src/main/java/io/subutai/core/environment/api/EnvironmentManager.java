@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.subutai.common.command.CommandException;
 import io.subutai.common.environment.ContainerHostNotFoundException;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.environment.EnvironmentCreationRef;
@@ -18,16 +19,16 @@ import io.subutai.common.network.SshTunnel;
 import io.subutai.common.peer.AlertHandler;
 import io.subutai.common.peer.AlertHandlerPriority;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentAlertHandlers;
 import io.subutai.common.peer.EnvironmentContainerHost;
 import io.subutai.common.peer.EnvironmentId;
-import io.subutai.common.protocol.ReverseProxyConfig;
+import io.subutai.common.peer.PeerException;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKeys;
 import io.subutai.core.environment.api.exception.EnvironmentCreationException;
 import io.subutai.core.environment.api.exception.EnvironmentDestructionException;
 import io.subutai.core.environment.api.exception.EnvironmentManagerException;
+import io.subutai.hub.share.quota.ContainerQuota;
 
 
 public interface EnvironmentManager
@@ -36,8 +37,7 @@ public interface EnvironmentManager
     String getEnvironmentOwnerName( Environment environment );
 
     /**
-     * Returns a set of DTO objects of all local environments
-     * Used by users with Tenant-Management role
+     * Returns a set of DTO objects of all local environments Used by users with Tenant-Management role
      */
     Set<EnvironmentDto> getTenantEnvironments();
 
@@ -51,16 +51,32 @@ public interface EnvironmentManager
 
     Set<Environment> getEnvironmentsByOwnerId( long userId );
 
-
+    /**
+     * Create environment based on the passed topology
+     *
+     * @param topology topology of future environment
+     * @param async true - env will be created in background, false - caller will block
+     */
     EnvironmentCreationRef createEnvironment( Topology topology, boolean async ) throws EnvironmentCreationException;
 
     //used in plugins, kept for backward compatibility
+    @Deprecated
     Set<EnvironmentContainerHost> growEnvironment( final String environmentId, final Topology topology,
                                                    final boolean async )
             throws EnvironmentModificationException, EnvironmentNotFoundException;
 
+    /**
+     * Modifies environment based on the passed topology, additionally performing optional operations on container
+     *
+     * @param environmentId env id
+     * @param topology topology to apply to environment, contains parameters of new containers to be added to env
+     * @param removedContainers - ids of containers to be removed from environment
+     * @param changedContainers - new LXC resource quotas to be applied to containers, key - container id and value -
+     * new quota
+     * @param async true - env will be created in background, false - caller will block
+     */
     EnvironmentCreationRef modifyEnvironment( String environmentId, Topology topology, List<String> removedContainers,
-                                              Map<String, ContainerSize> changedContainers, boolean async )
+                                              Map<String, ContainerQuota> changedContainers, boolean async )
             throws EnvironmentModificationException, EnvironmentNotFoundException;
 
 
@@ -242,10 +258,6 @@ public interface EnvironmentManager
     void stopMonitoring( String handlerId, AlertHandlerPriority handlerPriority, String environmentId )
             throws EnvironmentManagerException;
 
-    void addReverseProxy( final Environment environment, final ReverseProxyConfig reverseProxyConfig )
-            throws EnvironmentModificationException;
-
-
     void changeContainerHostname( final ContainerId containerId, final String newHostname, final boolean async )
             throws EnvironmentModificationException, EnvironmentNotFoundException, ContainerHostNotFoundException;
 
@@ -256,6 +268,41 @@ public interface EnvironmentManager
      */
     void addSshKeyToEnvironmentEntity( String environmentId, String sshKey ) throws EnvironmentNotFoundException;
 
-    void excludePeerFromEnvironment( String environmentId, String peerId )
-            throws EnvironmentNotFoundException, EnvironmentManagerException;
+    void excludePeerFromEnvironment( String environmentId, String peerId ) throws EnvironmentNotFoundException;
+
+    void excludeContainerFromEnvironment( String environmentId, String containerId )
+            throws EnvironmentNotFoundException, ContainerHostNotFoundException;
+
+    void updateContainerHostname( final String environmentId, final String containerId, final String hostname )
+            throws EnvironmentNotFoundException, PeerException;
+
+    Set<String> getDeletedEnvironmentsFromHub();
+
+    //called by local client
+    void placeEnvironmentInfoByContainerIp( String containerIp ) throws PeerException, CommandException;
+
+    //called by remote peer
+    void placeEnvironmentInfoByContainerId( String environmentId, String containerIp )
+            throws EnvironmentNotFoundException, ContainerHostNotFoundException, CommandException;
+
+    Environment getEnvironment( String environmentId );
+
+    /**
+     * Creates template on CDN/Bazaar out of a specified environment container
+     *
+     * @param environmentId env id
+     * @param containerId container id
+     * @param version name of template
+     * @param privateTemplate true indicates that template is accessible to owner only, otherwise it will be public
+     * template ( not used, kept for future )
+     */
+    void createTemplate( String environmentId, String containerId, String templateName, String version,
+                         boolean privateTemplate ) throws PeerException, EnvironmentNotFoundException;
+
+    /**
+     * Returns true, if resource host has environment containers, false otherwise
+     *
+     * @param rhId id of RH
+     */
+    boolean rhHasEnvironments( String rhId );
 }

@@ -4,27 +4,19 @@ package io.subutai.hub.share.dto.environment;
 import java.util.HashSet;
 import java.util.Set;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import io.subutai.hub.share.dto.PublicKeyContainer;
+import io.subutai.hub.share.dto.UserTokenDto;
+import io.subutai.hub.share.dto.ansible.AnsibleDto;
 
 
 public class EnvironmentPeerDto
 {
     public enum PeerState
     {
-        EXCHANGE_INFO,
-        RESERVE_NETWORK,
-        SETUP_TUNNEL,
-        BUILD_CONTAINER,
-        CONFIGURE_CONTAINER,
-        CONFIGURE_DOMAIN,
-        CHANGE_CONTAINER_STATE,
-        DELETE_PEER,
-        WAIT,
-        READY,
-        ERROR
+        EXCHANGE_INFO, RESERVE_NETWORK, SETUP_TUNNEL, BUILD_CONTAINER, CONFIGURE_CONTAINER, CONFIGURE_DOMAIN,
+        CHANGE_CONTAINER_STATE, CONFIGURE_ENVIRONMENT, CHECK_NETWORK, DELETE_PEER, WAIT, READY, ERROR
     }
 
 
@@ -33,6 +25,8 @@ public class EnvironmentPeerDto
     private EnvironmentInfoDto environmentInfo;
 
     private String ownerId;
+
+    private Long ssUserId;
 
     private PeerState requestState;
 
@@ -56,18 +50,25 @@ public class EnvironmentPeerDto
 
     private Set<EnvironmentPeerRHDto> rhs = new HashSet<>();
 
-    private String peerToken;
-
-    private String peerTokenId;
-
-    private String envOwnerToken;
-
-    private String envOwnerTokenId;
+    private UserTokenDto userToken;
 
     private String message;
 
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @JsonInclude( JsonInclude.Include.NON_EMPTY )
     private Integer vlan;
+
+    private String ansible;
+
+    private String playbook;
+
+    //TODO rename to cdnToken
+    private String kurjunToken;
+
+    private AnsibleDto ansibleDto;
+
+    private EnvironmentTelemetryDto environmentTelemetryDto;
+
+    private Set<P2PStatusDto> p2pStatuses = new HashSet<>();
 
 
     public EnvironmentPeerDto()
@@ -126,6 +127,18 @@ public class EnvironmentPeerDto
     public void setOwnerId( final String ownerId )
     {
         this.ownerId = ownerId;
+    }
+
+
+    public Long getSsUserId()
+    {
+        return ssUserId;
+    }
+
+
+    public void setSsUserId( Long ssUserId )
+    {
+        this.ssUserId = ssUserId;
     }
 
 
@@ -279,51 +292,15 @@ public class EnvironmentPeerDto
     }
 
 
-    public String getPeerToken()
+    public UserTokenDto getUserToken()
     {
-        return peerToken;
+        return userToken;
     }
 
 
-    public void setPeerToken( final String peerToken )
+    public void setUserToken( final UserTokenDto userToken )
     {
-        this.peerToken = peerToken;
-    }
-
-
-    public String getEnvOwnerToken()
-    {
-        return envOwnerToken;
-    }
-
-
-    public void setEnvOwnerToken( final String envOwnerToken )
-    {
-        this.envOwnerToken = envOwnerToken;
-    }
-
-
-    public String getPeerTokenId()
-    {
-        return peerTokenId;
-    }
-
-
-    public void setPeerTokenId( final String peerTokenId )
-    {
-        this.peerTokenId = peerTokenId;
-    }
-
-
-    public String getEnvOwnerTokenId()
-    {
-        return envOwnerTokenId;
-    }
-
-
-    public void setEnvOwnerTokenId( final String envOwnerTokenId )
-    {
-        this.envOwnerTokenId = envOwnerTokenId;
+        this.userToken = userToken;
     }
 
 
@@ -348,6 +325,78 @@ public class EnvironmentPeerDto
     public void setVlan( final Integer vlan )
     {
         this.vlan = vlan;
+    }
+
+
+    public String getAnsible()
+    {
+        return ansible;
+    }
+
+
+    public void setAnsible( final String ansible )
+    {
+        this.ansible = ansible;
+    }
+
+
+    public String getPlaybook()
+    {
+        return playbook;
+    }
+
+
+    public void setPlaybook( final String playbook )
+    {
+        this.playbook = playbook;
+    }
+
+
+    public String getKurjunToken()
+    {
+        return kurjunToken;
+    }
+
+
+    public void setKurjunToken( final String kurjunToken )
+    {
+        this.kurjunToken = kurjunToken;
+    }
+
+
+    public AnsibleDto getAnsibleDto()
+    {
+        return ansibleDto;
+    }
+
+
+    public void setAnsibleDto( final AnsibleDto ansibleDto )
+    {
+        this.ansibleDto = ansibleDto;
+    }
+
+
+    public EnvironmentTelemetryDto getEnvironmentTelemetryDto()
+    {
+        return environmentTelemetryDto;
+    }
+
+
+    public void setEnvironmentTelemetryDto( final EnvironmentTelemetryDto environmentTelemetryDto )
+    {
+        this.environmentTelemetryDto = environmentTelemetryDto;
+    }
+
+
+    public Set<P2PStatusDto> getP2pStatuses()
+    {
+        return p2pStatuses;
+    }
+
+
+    public void setP2pStatuses( final Set<P2PStatusDto> p2pStatuses )
+    {
+        this.p2pStatuses = p2pStatuses;
     }
 
 

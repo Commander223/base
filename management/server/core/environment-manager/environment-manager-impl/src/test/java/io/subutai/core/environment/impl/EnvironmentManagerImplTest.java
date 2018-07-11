@@ -30,6 +30,7 @@ import io.subutai.common.environment.EnvironmentNotFoundException;
 import io.subutai.common.environment.EnvironmentPeer;
 import io.subutai.common.environment.EnvironmentStatus;
 import io.subutai.common.environment.Node;
+import io.subutai.common.environment.Nodes;
 import io.subutai.common.environment.Topology;
 import io.subutai.common.metric.Alert;
 import io.subutai.common.metric.AlertValue;
@@ -38,7 +39,6 @@ import io.subutai.common.network.ReservedNetworkResources;
 import io.subutai.common.peer.AlertEvent;
 import io.subutai.common.peer.AlertHandler;
 import io.subutai.common.peer.AlertHandlerPriority;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentAlertHandler;
 import io.subutai.common.peer.EnvironmentAlertHandlers;
 import io.subutai.common.peer.EnvironmentContainerHost;
@@ -46,7 +46,6 @@ import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.peer.PeerException;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKey;
 import io.subutai.common.security.SshKeys;
@@ -85,8 +84,12 @@ import io.subutai.core.peer.api.PeerActionType;
 import io.subutai.core.peer.api.PeerManager;
 import io.subutai.core.security.api.SecurityManager;
 import io.subutai.core.security.api.crypto.KeyManager;
+import io.subutai.core.systemmanager.api.SystemManager;
+import io.subutai.core.template.api.TemplateManager;
 import io.subutai.core.tracker.api.Tracker;
 import io.subutai.hub.share.common.HubAdapter;
+import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertFalse;
@@ -101,6 +104,7 @@ import static org.mockito.Matchers.anyMap;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Matchers.isA;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -176,17 +180,22 @@ public class EnvironmentManagerImplTest
     KeyManager keyManager;
     @Mock
     PGPKeyUtil pgpKeyUtil;
+    @Mock
+    TemplateManager templateManager;
+    @Mock
+    SystemManager systemManager;
 
 
     class EnvironmentManagerImplSUT extends EnvironmentManagerImpl
     {
-        public EnvironmentManagerImplSUT( final PeerManager peerManager, final SecurityManager securityManager,
-                                          final IdentityManager identityManager, final Tracker tracker,
-                                          final RelationManager relationManager, final HubAdapter hubAdapter,
-                                          final EnvironmentService environmentService )
+        public EnvironmentManagerImplSUT( final TemplateManager templateManager, final PeerManager peerManager,
+                                          final SecurityManager securityManager, final IdentityManager identityManager,
+                                          final Tracker tracker, final RelationManager relationManager,
+                                          final HubAdapter hubAdapter, final EnvironmentService environmentService,
+                                          final SystemManager systemManager )
         {
-            super( peerManager, securityManager, identityManager, tracker, relationManager, hubAdapter,
-                    environmentService );
+            super( templateManager, peerManager, securityManager, identityManager, tracker, relationManager, hubAdapter,
+                    environmentService, systemManager );
         }
 
 
@@ -215,8 +224,9 @@ public class EnvironmentManagerImplTest
         doReturn( session ).when( identityManager ).loginSystemUser();
         doReturn( systemUser ).when( session ).getSubject();
 
-        environmentManager = spy( new EnvironmentManagerImplSUT( peerManager, securityManager, identityManager, tracker,
-                relationManager, hubAdapter, environmentService ) );
+        environmentManager =
+                spy( new EnvironmentManagerImplSUT( templateManager, peerManager, securityManager, identityManager,
+                        tracker, relationManager, hubAdapter, environmentService, systemManager ) );
         environmentManager.jsonUtil = jsonUtil;
         environmentManager.pgpKeyUtil = pgpKeyUtil;
         environmentManager.activeWorkflows = activeWorkflows;
@@ -240,6 +250,7 @@ public class EnvironmentManagerImplTest
         doReturn( TestHelper.SSH_KEY ).when( topology ).getSshKey();
 
         doReturn( true ).when( localPeer ).isOnline();
+        doReturn( true ).when( localPeer ).canAccommodate( any( Nodes.class ) );
         doReturn( trackerOperation ).when( tracker )
                                     .createTrackerOperation( eq( environmentManager.MODULE_NAME ), anyString() );
         doReturn( user ).when( identityManager ).getActiveUser();
@@ -452,8 +463,8 @@ public class EnvironmentManagerImplTest
     public void testModifyEnvironment() throws Exception
     {
         List<String> removedContainers = Lists.newArrayList( TestHelper.CONTAINER_ID );
-        Map<String, ContainerSize> changedContainers = Maps.newHashMap();
-        changedContainers.put( TestHelper.CONTAINER_ID, ContainerSize.LARGE );
+        Map<String, ContainerQuota> changedContainers = Maps.newHashMap();
+        changedContainers.put( TestHelper.CONTAINER_ID, new ContainerQuota( ContainerSize.LARGE ) );
         EnvironmentModifyWorkflow environmentModifyWorkflow = mock( EnvironmentModifyWorkflow.class );
         doReturn( environmentModifyWorkflow ).when( environmentManager )
                                              .getEnvironmentModifyingWorkflow( environment, topology, trackerOperation,
@@ -784,8 +795,6 @@ public class EnvironmentManagerImplTest
         {
         }
 
-        verify( trackerOperation ).addLogFailed( anyString() );
-
         //-----
 
         doReturn( EnvironmentStatus.UNDER_MODIFICATION ).when( environment ).getStatus();
@@ -800,8 +809,6 @@ public class EnvironmentManagerImplTest
         catch ( EnvironmentModificationException e )
         {
         }
-
-        verify( trackerOperation, times( 2 ) ).addLogFailed( anyString() );
 
         //-----
 
@@ -1194,7 +1201,7 @@ public class EnvironmentManagerImplTest
 
         environmentManager.update( environment );
 
-        verify( environmentService ).merge( environment );
+        verify( environmentService, atLeastOnce() ).merge( environment );
 
         //-----
 
@@ -1210,6 +1217,7 @@ public class EnvironmentManagerImplTest
     @Test
     public void testRemove() throws Exception
     {
+        doReturn( true ).when( environmentAdapter ).removeEnvironment( environment );
         environmentManager.remove( environment );
 
         verify( environmentService ).remove( TestHelper.ENV_ID );
@@ -1355,18 +1363,6 @@ public class EnvironmentManagerImplTest
 
 
     @Test
-    public void testAddReverseProxy() throws Exception
-    {
-        ReverseProxyConfig config = mock( ReverseProxyConfig.class );
-        doReturn( TestHelper.CONTAINER_ID ).when( config ).getContainerId();
-
-        environmentManager.addReverseProxy( environment, config );
-
-        verify( localPeer ).addReverseProxy( config );
-    }
-
-
-    @Test
     public void testOnRegistrationSucceeded() throws Exception
     {
         environmentManager.onRegistrationSucceeded();
@@ -1379,8 +1375,9 @@ public class EnvironmentManagerImplTest
     public void testResetP2pKey() throws Exception
     {
         doNothing().when( environmentManager ).resetP2PSecretKey( anyString(), anyString(), anyLong(), anyBoolean() );
+        doReturn( EnvironmentStatus.HEALTHY ).when( environment ).getStatus();
 
-        environmentManager.resetP2Pkey();
+        environmentManager.doResetP2Pkeys();
 
         verify( environmentManager ).resetP2PSecretKey( anyString(), anyString(), anyLong(), anyBoolean() );
     }

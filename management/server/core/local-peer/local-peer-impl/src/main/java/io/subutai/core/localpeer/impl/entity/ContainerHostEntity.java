@@ -1,32 +1,42 @@
 package io.subutai.core.localpeer.impl.entity;
 
 
+import java.util.HashSet;
+import java.util.Set;
+
 import javax.persistence.Access;
 import javax.persistence.AccessType;
+import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
+import javax.persistence.FetchType;
 import javax.persistence.JoinColumn;
 import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
 import javax.persistence.Table;
 import javax.persistence.Transient;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostArchitecture;
 import io.subutai.common.host.HostId;
 import io.subutai.common.host.HostInfo;
+import io.subutai.common.host.HostInterface;
+import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
-import io.subutai.common.metric.ProcessResourceUsage;
+import io.subutai.common.host.Quota;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.Peer;
@@ -38,6 +48,7 @@ import io.subutai.common.security.objects.PermissionObject;
 import io.subutai.common.settings.Common;
 import io.subutai.common.util.ServiceLocator;
 import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 /**
@@ -62,6 +73,9 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     @Column( name = "env_id", nullable = true )
     private String environmentId;
 
+    @Column( name = "vlan", nullable = true )
+    private Integer vlan;
+
     @Column( name = "initiator_peer_id", nullable = true )
     private String initiatorPeerId;
 
@@ -78,9 +92,32 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     @Column( name = "template_id", nullable = false )
     private String templateId;
 
+    @OneToMany( mappedBy = "host", fetch = FetchType.EAGER, cascade = CascadeType.ALL, targetEntity =
+            HostInterfaceEntity.class, orphanRemoval = true )
+    @JsonIgnore
+    private Set<HostInterface> hostInterfaces = new HashSet<>();
+
+    @Column( name = "create_time", nullable = false )
+    @JsonProperty( "created" )
+    private long creationTimestamp = System.currentTimeMillis();
+
 
     protected ContainerHostEntity()
     {
+    }
+
+
+    @Override
+    public Integer getVlan()
+    {
+        return vlan;
+    }
+
+
+    @Override
+    public String getEnvId()
+    {
+        return environmentId;
     }
 
 
@@ -101,15 +138,49 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     public ContainerHostEntity( final String peerId, final String hostId, final String hostname,
                                 HostArchitecture architecture, HostInterfaces hostInterfaces,
                                 final String containerName, final String templateId, final String environmentId,
-                                final String ownerId, final String initiatorPeerId, final ContainerSize containerSize )
+                                final String ownerId, final String initiatorPeerId, final ContainerQuota containerQuota,
+                                final Integer vlan )
     {
-        super( peerId, hostId, hostname, architecture, hostInterfaces );
+        super( peerId, hostId, hostname, architecture );
         this.containerName = containerName;
         this.templateId = templateId;
         this.environmentId = environmentId;
         this.initiatorPeerId = initiatorPeerId;
         this.ownerId = ownerId;
-        this.containerSize = containerSize;
+        this.containerSize = containerQuota.getContainerSize();
+        this.vlan = vlan;
+        setSavedHostInterfaces( hostInterfaces );
+        this.creationTimestamp = System.currentTimeMillis();
+    }
+
+
+    private void setSavedHostInterfaces( HostInterfaces hostInterfaces )
+    {
+        Preconditions.checkNotNull( hostInterfaces );
+
+        this.hostInterfaces.clear();
+        for ( HostInterface iface : hostInterfaces.getAll() )
+        {
+            HostInterfaceEntity netInterface = new HostInterfaceEntity( iface );
+            netInterface.setHost( this );
+            this.hostInterfaces.add( netInterface );
+        }
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        try
+        {
+            return getPeer().getRawQuota( getContainerId() );
+        }
+        catch ( PeerException e )
+        {
+            logger.error( "Failed to get quota: {}", e.getMessage() );
+        }
+
+        return null;
     }
 
 
@@ -187,7 +258,7 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
         {
             return getTemplate().getName();
         }
-        catch ( PeerException e )
+        catch ( Exception e )
         {
             logger.error( "Failed to get template by id", e.getMessage() );
         }
@@ -211,13 +282,6 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
 
 
     @Override
-    public void dispose() throws PeerException
-    {
-        getPeer().destroyContainer( getContainerId() );
-    }
-
-
-    @Override
     public void start() throws PeerException
     {
         Peer peer = getPeer();
@@ -234,19 +298,34 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
 
 
     @Override
-    public boolean updateHostInfo( final HostInfo hostInfo )
+    public void updateHostInfo( final HostInfo hostInfo )
     {
+        super.updateHostInfo( hostInfo );
+
         this.containerName = ( ( ContainerHostInfo ) hostInfo ).getContainerName();
 
-        return super.updateHostInfo( hostInfo );
+        setSavedHostInterfaces( ( ( ContainerHostInfo ) hostInfo ).getHostInterfaces() );
     }
 
 
     @Override
-    public ProcessResourceUsage getProcessResourceUsage( final int processPid ) throws PeerException
+    public HostInterfaces getHostInterfaces()
     {
-        Peer peer = getPeer();
-        return peer.getProcessResourceUsage( getContainerId(), processPid );
+        Set<HostInterfaceModel> hostInterfaceModels = Sets.newHashSet();
+
+        for ( HostInterface hostInterface : hostInterfaces )
+        {
+            hostInterfaceModels.add( new HostInterfaceModel( hostInterface ) );
+        }
+
+        return new HostInterfaces( getId(), hostInterfaceModels );
+    }
+
+
+    @Override
+    public HostInterface getInterfaceByName( final String interfaceName )
+    {
+        return getHostInterfaces().findByName( interfaceName );
     }
 
 
@@ -260,6 +339,7 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     @Override
     public void setQuota( final ContainerQuota containerQuota ) throws PeerException
     {
+        this.containerSize = containerQuota.getContainerSize();
         getPeer().setQuota( this.getContainerId(), containerQuota );
     }
 
@@ -271,6 +351,7 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     }
 
 
+    @Override
     public void setContainerSize( final ContainerSize containerSize )
     {
         Preconditions.checkNotNull( containerSize );
@@ -337,5 +418,12 @@ public class ContainerHostEntity extends AbstractSubutaiHost implements Containe
     public String getIp()
     {
         return getHostInterfaces().findByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp();
+    }
+
+
+    @Override
+    public long getCreationTimestamp()
+    {
+        return creationTimestamp;
     }
 }

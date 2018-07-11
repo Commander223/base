@@ -125,11 +125,13 @@ public class TrackerImpl implements Tracker
         Preconditions.checkNotNull( !Strings.isNullOrEmpty( description ), "Description is null or empty" );
 
         TrackerOperationImpl po = new TrackerOperationImpl( source.toUpperCase(), description, this );
+
         if ( saveTrackerOperation( source, po ) )
         {
             return po;
         }
-        return null;
+
+        throw new IllegalStateException( "Failed to create tracker object" );
     }
 
 
@@ -237,16 +239,16 @@ public class TrackerImpl implements Tracker
 
 
     @Override
-    public void setOperationViewState( String source, UUID operationId, boolean viewed ) throws SQLException
+    public void setOperationViewState( String source, UUID operationId, boolean display ) throws SQLException
     {
-        dataService.setOperationViewState( source, operationId, viewed );
+        dataService.setOperationViewState( source, operationId, display );
     }
 
 
     @Override
-    public void setOperationsViewStates( boolean viewed ) throws SQLException
+    public void setOperationsViewStates( boolean display ) throws SQLException
     {
-        dataService.setOperationsViewState( viewed, identityManager.getActiveUser().getId() );
+        dataService.setOperationsViewState( display, identityManager.getActiveUser().getId() );
     }
 
 

@@ -1,6 +1,7 @@
 package io.subutai.core.environment.impl.entity;
 
 
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -36,8 +37,6 @@ import io.subutai.common.command.CommandException;
 import io.subutai.common.command.CommandResult;
 import io.subutai.common.command.RequestBuilder;
 import io.subutai.common.environment.Environment;
-import io.subutai.common.environment.EnvironmentModificationException;
-import io.subutai.common.environment.EnvironmentNotFoundException;
 import io.subutai.common.exception.ActionFailedException;
 import io.subutai.common.host.ContainerHostInfoModel;
 import io.subutai.common.host.ContainerHostState;
@@ -47,9 +46,8 @@ import io.subutai.common.host.HostInfo;
 import io.subutai.common.host.HostInterface;
 import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
-import io.subutai.common.metric.ProcessResourceUsage;
+import io.subutai.common.host.Quota;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentContainerHost;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.LocalPeer;
@@ -63,12 +61,12 @@ import io.subutai.common.security.relation.RelationManager;
 import io.subutai.common.security.relation.model.RelationMeta;
 import io.subutai.common.settings.Common;
 import io.subutai.common.util.ServiceLocator;
-import io.subutai.common.util.StringUtil;
 import io.subutai.core.environment.impl.EnvironmentManagerImpl;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
 import io.subutai.core.identity.api.model.UserDelegate;
 import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 /**
@@ -97,6 +95,10 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     @Column( name = "containerName" )
     @JsonProperty( "containerName" )
     private String containerName;
+
+    @Column( name = "vlan" )
+    @JsonProperty( "vlan" )
+    private Integer vlan;
 
 
     @Column( name = "creator_peer_id", nullable = false )
@@ -144,6 +146,10 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     @Column
     private Integer domainPort = 80;
 
+    @Column( name = "create_time", nullable = false )
+    @JsonProperty( "created" )
+    private long creationTimestamp = System.currentTimeMillis();
+
     @Transient
     @JsonIgnore
     protected transient EnvironmentManagerImpl environmentManager;
@@ -170,13 +176,14 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
     public EnvironmentContainerImpl( final String initiatorPeerId, final String peerId,
                                      final ContainerHostInfoModel hostInfo, final String templateId, String domainName,
-                                     ContainerSize containerSize, String resourceHostId )
+                                     ContainerQuota containerQuota, String resourceHostId )
     {
         Preconditions.checkNotNull( peerId );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( domainName ) );
         Preconditions.checkNotNull( hostInfo );
         Preconditions.checkNotNull( templateId );
-        Preconditions.checkNotNull( containerSize );
+        Preconditions.checkNotNull( containerQuota );
+        Preconditions.checkNotNull( containerQuota.getContainerSize() );
 
         this.initiatorPeerId = initiatorPeerId;
         this.peerId = peerId;
@@ -186,9 +193,34 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
         this.hostArchitecture = hostInfo.getArch();
         this.templateId = templateId;
         this.domainName = domainName;
-        this.containerSize = containerSize;
+        this.containerSize = containerQuota.getContainerSize();
         this.resourceHostId = resourceHostId;
+        this.vlan = hostInfo.getVlan();
         setHostInterfaces( hostInfo.getHostInterfaces() );
+        this.creationTimestamp = System.currentTimeMillis();
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        try
+        {
+            return getPeer().getRawQuota( getContainerId() );
+        }
+        catch ( PeerException e )
+        {
+            logger.error( "Failed to get quota: {}", e.getMessage() );
+        }
+
+        return null;
+    }
+
+
+    @Override
+    public Integer getVlan()
+    {
+        return vlan;
     }
 
 
@@ -250,6 +282,13 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
 
     @Override
+    public String getEnvId()
+    {
+        return parent.getId();
+    }
+
+
+    @Override
     public ContainerHostState getState()
     {
         try
@@ -259,9 +298,9 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
         catch ( Exception e )
         {
             logger.warn( "Error getting container state: {}", e.getMessage() );
-
-            return ContainerHostState.UNKNOWN;
         }
+
+        return ContainerHostState.UNKNOWN;
     }
 
 
@@ -279,47 +318,40 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     }
 
 
-    @Override
-    public void dispose() throws PeerException
+    public Environment destroy( boolean removeMetadataOnly ) throws PeerException
     {
-        try
+        if ( !removeMetadataOnly )
         {
-            environmentManager.destroyContainer( parent.getId(), this.getId(), false );
-        }
-        catch ( EnvironmentNotFoundException | EnvironmentModificationException e )
-        {
-            throw new PeerException( e );
-        }
-    }
-
-
-    public Environment destroy() throws PeerException
-    {
-        try
-        {
-            final Peer peer = getPeer();
-
-            peer.destroyContainer( getContainerId() );
-
-            if ( parent.getContainerHostsByPeerId( getPeerId() ).isEmpty() )
+            try
             {
-                ( ( LocalEnvironment ) parent ).removeEnvironmentPeer( getPeerId() );
+                final Peer peer = getPeer();
+
+                peer.destroyContainer( getContainerId() );
             }
-        }
-        catch ( Exception e )
-        {
-            logger.warn( e.getMessage() );
+            catch ( Exception e )
+            {
+                logger.warn( e.getMessage() );
+            }
         }
 
         ( ( LocalEnvironment ) parent ).removeContainer( this );
 
-        Environment env = environmentManager.update( ( LocalEnvironment ) parent );
+        if ( parent.getContainerHostsByPeerId( getPeerId() ).isEmpty() )
+        {
+            ( ( LocalEnvironment ) parent ).removeEnvironmentPeer( getPeerId() );
+        }
 
-        environment = null;
+        Environment env = environmentManager.update( ( LocalEnvironment ) parent );
 
         environmentManager.notifyOnContainerDestroyed( env, getId() );
 
         return env;
+    }
+
+
+    public void nullEnvironment()
+    {
+        environment = null;
     }
 
 
@@ -434,18 +466,18 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     }
 
 
-    public EnvironmentContainerHost setHostname( final String hostname ) throws PeerException
+    public EnvironmentContainerHost setHostname( final String hostname, boolean metadataOnly ) throws PeerException
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ), "Invalid hostname" );
-
-        String newHostname = StringUtil.removeHtmlAndSpecialChars( hostname, true );
-
         Preconditions
-                .checkArgument( !StringUtils.equalsIgnoreCase( this.hostname, newHostname ), "No change in hostname" );
+                .checkArgument( !StringUtils.equalsIgnoreCase( this.hostname, hostname ), "No change in hostname" );
 
-        getPeer().setContainerHostname( getContainerId(), newHostname );
+        if ( !metadataOnly )
+        {
+            getPeer().setContainerHostname( getContainerId(), hostname );
+        }
 
-        this.hostname = newHostname;
+        this.hostname = hostname;
 
         return environmentManager.update( this );
     }
@@ -484,6 +516,12 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     public CommandResult execute( final RequestBuilder requestBuilder ) throws CommandException
     {
         validateTrustChain();
+        return getPeer().execute( requestBuilder, this );
+    }
+
+
+    public CommandResult executeUnsafe( final RequestBuilder requestBuilder ) throws CommandException
+    {
         return getPeer().execute( requestBuilder, this );
     }
 
@@ -563,13 +601,6 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
 
     @Override
-    public ProcessResourceUsage getProcessResourceUsage( final int processPid ) throws PeerException
-    {
-        return getPeer().getProcessResourceUsage( getContainerId(), processPid );
-    }
-
-
-    @Override
     public ContainerQuota getQuota() throws PeerException
     {
         return getPeer().getQuota( this.getContainerId() );
@@ -579,7 +610,9 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     @Override
     public void setQuota( final ContainerQuota containerQuota ) throws PeerException
     {
+        this.containerSize = containerQuota.getContainerSize();
         getPeer().setQuota( this.getContainerId(), containerQuota );
+        environmentManager.update( this );
     }
 
 
@@ -591,13 +624,9 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
 
 
     @Override
-    public EnvironmentContainerHost setContainerSize( final ContainerSize size ) throws PeerException
+    public void setContainerSize( final ContainerSize size )
     {
-        getPeer().setContainerSize( this.getContainerId(), size );
-
         this.containerSize = size;
-
-        return environmentManager.update( this );
     }
 
 
@@ -673,7 +702,7 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
                           .add( "initiatorPeerId", initiatorPeerId ).add( "templateId", templateId )
                           .add( "environmentId", envId ).add( "domainName", domainName ).add( "tags", tags )
                           .add( "hostArchitecture", hostArchitecture ).add( "resourceHostId", resourceHostId )
-                          .toString();
+                          .add( "createdAt", new Date( creationTimestamp ) ).toString();
     }
 
 
@@ -732,6 +761,13 @@ public class EnvironmentContainerImpl implements EnvironmentContainerHost
     @Override
     public String getIp()
     {
-        return getHostInterfaces().findByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp();
+        return getInterfaceByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp();
+    }
+
+
+    @Override
+    public long getCreationTimestamp()
+    {
+        return creationTimestamp;
     }
 }

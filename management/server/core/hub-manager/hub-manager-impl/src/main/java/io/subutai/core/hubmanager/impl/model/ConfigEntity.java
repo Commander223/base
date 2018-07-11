@@ -62,9 +62,9 @@ public class ConfigEntity implements Config
     }
 
 
-    public void setPeerId( String peerId )
+    public void setPeerName( final String peerName )
     {
-        this.peerId = peerId;
+        this.peerName = peerName;
     }
 
 
@@ -75,12 +75,6 @@ public class ConfigEntity implements Config
     }
 
 
-    public void setHubIp( String serverIp )
-    {
-        this.serverIp = serverIp;
-    }
-
-
     @Override
     public String getOwnerId()
     {
@@ -88,21 +82,9 @@ public class ConfigEntity implements Config
     }
 
 
-    public void setOwnerId( String ownerId )
-    {
-        this.ownerId = ownerId;
-    }
-
-
     @Override
     public String getOwnerEmail()
     {
         return ownerEmail;
-    }
-
-
-    public void setOwnerEmail( String ownerEmail )
-    {
-        this.ownerEmail = ownerEmail;
     }
 }

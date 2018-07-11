@@ -2,35 +2,41 @@ package io.subutai.core.network.impl;
 
 
 import java.time.Instant;
-import java.util.Date;
+import java.util.List;
+import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import io.subutai.common.command.CommandException;
 import io.subutai.common.command.CommandResult;
 import io.subutai.common.command.RequestBuilder;
-import io.subutai.common.network.JournalCtlLevel;
-import io.subutai.common.network.P2pLogs;
 import io.subutai.common.network.ProxyLoadBalanceStrategy;
 import io.subutai.common.network.SshTunnel;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.Host;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.protocol.CustomProxyConfig;
+import io.subutai.common.protocol.LoadBalancing;
 import io.subutai.common.protocol.P2PConnection;
 import io.subutai.common.protocol.P2PConnections;
+import io.subutai.common.protocol.Protocol;
+import io.subutai.common.protocol.ReservedPort;
+import io.subutai.common.protocol.ReservedPorts;
 import io.subutai.common.protocol.Tunnel;
 import io.subutai.common.protocol.Tunnels;
 import io.subutai.common.settings.Common;
-import io.subutai.common.settings.SystemSettings;
 import io.subutai.common.util.NumUtil;
 import io.subutai.core.network.api.NetworkManager;
 import io.subutai.core.network.api.NetworkManagerException;
 import io.subutai.core.peer.api.PeerManager;
+import io.subutai.hub.share.dto.domain.PortMapDto;
+import io.subutai.hub.share.dto.domain.ReservedPortMapping;
 
 
 /**
@@ -41,7 +47,6 @@ public class NetworkManagerImpl implements NetworkManager
     private static final String LINE_DELIMITER = System.lineSeparator();
     private final PeerManager peerManager;
     protected Commands commands = new Commands();
-    protected SystemSettings systemSettings;
 
 
     public NetworkManagerImpl( final PeerManager peerManager )
@@ -49,14 +54,8 @@ public class NetworkManagerImpl implements NetworkManager
         Preconditions.checkNotNull( peerManager );
 
         this.peerManager = peerManager;
-        this.systemSettings = getSystemSettings();
     }
 
-
-    protected SystemSettings getSystemSettings()
-    {
-        return new SystemSettings();
-    }
 
     //---------------- P2P SECTION BEGIN ------------------------
 
@@ -76,8 +75,42 @@ public class NetworkManagerImpl implements NetworkManager
 
         execute( host, commands.getJoinP2PSwarmCommand( interfaceName, localIp, p2pHash, secretKey,
                 getUnixTimestampOffset( secretKeyTtlSec ),
-                String.format( "%d-%d", systemSettings.getP2pPortStartRange(),
-                        systemSettings.getP2pPortEndRange() ) ) );
+                String.format( "%s-%s", Common.P2P_PORT_RANGE_START, Common.P2P_PORT_RANGE_END ) ) );
+    }
+
+
+    @Override
+    public void joinP2PSwarmDHCP( final Host host, final String interfaceName, final String p2pHash,
+                                  final String secretKey, final long secretKeyTtlSec ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host, "Invalid host" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( interfaceName ), "Invalid interface name" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( p2pHash ), "Invalid P2P hash" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( secretKey ), "Invalid secret key" );
+        Preconditions.checkArgument( secretKeyTtlSec > 0, "Invalid time-to-live" );
+
+
+        execute( host, commands.getJoinP2PSwarmDHCPCommand( interfaceName, p2pHash, secretKey,
+                getUnixTimestampOffset( secretKeyTtlSec ),
+                String.format( "%s-%s", Common.P2P_PORT_RANGE_START, Common.P2P_PORT_RANGE_END ) ) );
+    }
+
+
+    @Override
+    public void removeP2PSwarm( final Host host, String p2pHash ) throws NetworkManagerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( p2pHash ), "Invalid P2P hash" );
+
+        execute( host, commands.getRemoveP2PSwarmCommand( p2pHash ) );
+    }
+
+
+    @Override
+    public void removeP2PIface( Host host, String interfaceName ) throws NetworkManagerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( interfaceName ), "Invalid interface name" );
+
+        execute( host, commands.getRemoveP2PIfaceCommand( interfaceName ) );
     }
 
 
@@ -128,46 +161,58 @@ public class NetworkManagerImpl implements NetworkManager
 
         CommandResult result = execute( host, commands.getGetP2pVersionCommand() );
 
-        return result.getStdOut();
+        String p2pVersion = result.getStdOut();
+        if ( p2pVersion != null )
+        {
+            p2pVersion = p2pVersion.replace( "p2p version", "" ).trim();
+        }
+
+        return p2pVersion;
     }
 
 
     @Override
-    public P2pLogs getP2pLogs( final Host host, final JournalCtlLevel logLevel, final Date from, final Date till )
-            throws NetworkManagerException
+    public String getP2pStatusByP2PHash( Host host, String p2pHash ) throws NetworkManagerException
     {
         Preconditions.checkNotNull( host, "Invalid host" );
-        Preconditions.checkNotNull( logLevel, "Invalid log level" );
-        Preconditions.checkNotNull( from, "Invalid from date" );
-        Preconditions.checkNotNull( till, "Invalid till date" );
+        Preconditions.checkNotNull( p2pHash, "Invalid p2pHash" );
+        Preconditions.checkState( !p2pHash.isEmpty(), "p2pHash can not be empty!" );
 
-        P2pLogs p2pLogs = new P2pLogs();
+        CommandResult result = execute( host, commands.getP2pStatusBySwarm( p2pHash ) );
 
-        try
+        if ( result.hasSucceeded() )
         {
-            CommandResult result = host.execute( commands.getGetP2pLogsCommand( from, till ) );
-
-            StringTokenizer st = new StringTokenizer( result.getStdOut(), System.lineSeparator() );
-
-            while ( st.hasMoreTokens() )
-            {
-                String logLine = st.nextToken();
-
-                if ( logLevel == JournalCtlLevel.ALL && !Strings.isNullOrEmpty( logLine ) || logLine
-                        .contains( String.format( "[%s]", logLevel.name() ) ) )
-                {
-                    p2pLogs.addLog( logLine );
-                }
-            }
+            return result.getStdOut();
         }
-        catch ( CommandException e )
+        else
         {
-            throw new NetworkManagerException( e );
+            return result.getStdErr();
         }
-
-        return p2pLogs;
     }
 
+
+    public Set<String> getUsedP2pIfaceNames( final Host host ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host, "Invalid host" );
+
+        CommandResult result = execute( host, commands.getGetUsedP2pIfaceNamesCommand() );
+
+        StringTokenizer st = new StringTokenizer( result.getStdOut(), LINE_DELIMITER );
+
+        Set<String> p2pIfaceNames = Sets.newHashSet();
+
+        while ( st.hasMoreTokens() )
+        {
+            String p2pIface = st.nextToken();
+
+            if ( p2pIface.matches( Common.P2P_INTERFACE_NAME_REGEX ) )
+            {
+                p2pIfaceNames.add( p2pIface );
+            }
+        }
+
+        return p2pIfaceNames;
+    }
     //------------------ P2P SECTION END --------------------------------
 
 
@@ -186,6 +231,16 @@ public class NetworkManagerImpl implements NetworkManager
 
 
         execute( host, commands.getCreateTunnelCommand( tunnelName, tunnelIp, vlan, vni ) );
+    }
+
+
+    @Override
+    public void deleteTunnel( final Host host, final String tunnelName ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host, "Invalid host" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( tunnelName ), "Invalid tunnel name" );
+
+        execute( host, commands.getDeleteTunnelCommand( tunnelName ) );
     }
 
 
@@ -396,9 +451,9 @@ public class NetworkManagerImpl implements NetworkManager
         execute( getManagementHost(), commands.getRemoveVlanDomainCommand( proxyConfig.getVlan() ) );
         execute( getManagementHost(), commands.getSetVlanDomainCommand( proxyConfig.getVlan(), proxyConfig.getDomain(),
                 ProxyLoadBalanceStrategy.NONE,
-                String.format( "/mnt/lib/lxc/%s/rootfs/etc/nginx/ssl.pem", containerHost.getContainerName() ) ) );
+                String.format( " %s:/etc/nginx/ssl.pem", containerHost.getContainerName() ) ) );
         execute( getManagementHost(), commands.getAddIpToVlanDomainCommand(
-                proxyConfig.getHost() + ( proxyConfig.getPort() == -1 ? "" : ":" + proxyConfig.getPort() ),
+                containerHost.getIp() + ( proxyConfig.getPort() == -1 ? "" : ":" + proxyConfig.getPort() ),
                 proxyConfig.getVlan() ) );
     }
 
@@ -409,5 +464,227 @@ public class NetworkManagerImpl implements NetworkManager
         Preconditions.checkArgument( !Strings.isNullOrEmpty( vlan ) );
 
         execute( getManagementHost(), commands.getRemoveVlanDomainCommand( vlan ) );
+    }
+
+
+    @Override
+    public ReservedPorts getReservedPorts( final Host host ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host, "Invalid host" );
+
+        CommandResult result = execute( host, commands.getGetReservedPortsCommand() );
+
+        StringTokenizer st = new StringTokenizer( result.getStdOut(), LINE_DELIMITER );
+
+        Pattern p = Pattern.compile( "\\s*(\\w+)\\s*:\\s*(\\d+)\\s*" );
+
+        ReservedPorts reservedPorts = new ReservedPorts();
+
+        while ( st.hasMoreTokens() )
+        {
+            Matcher m = p.matcher( st.nextToken() );
+
+            if ( m.find() && m.groupCount() == 2 )
+            {
+                reservedPorts.addReservedPort( new ReservedPort( Protocol.valueOf( m.group( 1 ).toUpperCase() ),
+                        Integer.parseInt( m.group( 2 ) ) ) );
+            }
+        }
+
+
+        return reservedPorts;
+    }
+
+
+    public ReservedPorts getContainerPortMappings( final Host host, final Protocol protocol )
+            throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+
+        CommandResult result = execute( host, commands.getListPortMappingsCommand( protocol ) );
+
+        StringTokenizer st = new StringTokenizer( result.getStdOut(), LINE_DELIMITER );
+
+        Pattern p = Pattern.compile( "\\s*(\\w+)\\s+(\\d+)\\s+(\\S+)\\s*" );
+
+        ReservedPorts reservedPorts = new ReservedPorts();
+
+        while ( st.hasMoreTokens() )
+        {
+            Matcher m = p.matcher( st.nextToken() );
+
+            if ( m.find() && m.groupCount() == 3 )
+            {
+                reservedPorts.addReservedPort( new ReservedPort( Protocol.valueOf( m.group( 1 ).toUpperCase() ),
+                        Integer.parseInt( m.group( 2 ) ), m.group( 3 ) ) );
+            }
+        }
+
+
+        return reservedPorts;
+    }
+
+
+    @Override
+    public List<ReservedPortMapping> getReservedPortMappings( final Host host ) throws NetworkManagerException
+    {
+        List<ReservedPortMapping> mappedPorts = Lists.newArrayList();
+
+        Preconditions.checkNotNull( host );
+
+        CommandResult result = execute( host, commands.getListOfReservedPortMappingCommand() );
+
+        StringTokenizer st = new StringTokenizer( result.getStdOut(), LINE_DELIMITER );
+
+        while ( st.hasMoreTokens() )
+        {
+            StringTokenizer parts = new StringTokenizer( st.nextToken(), "\t:" );
+
+            if ( parts.countTokens() >= 4 )
+            {
+                try
+                {
+                    ReservedPortMapping mapping = new ReservedPortMapping();
+
+                    mapping.setProtocol( PortMapDto.Protocol.valueOf( parts.nextToken().toUpperCase() ) );
+                    parts.nextToken();// 0.0.0.0 we need skip output
+                    mapping.setExternalPort( Integer.parseInt( parts.nextToken() ) );
+                    mapping.setIpAddress( parts.nextToken() );
+                    mapping.setInternalPort( Integer.parseInt( parts.nextToken() ) );
+                    mapping.setDomain( parts.hasMoreTokens() ? parts.nextToken() : null );
+
+                    mappedPorts.add( mapping );
+                }
+                catch ( NumberFormatException e )
+                {
+                    continue;
+                }
+            }
+        }
+
+        return mappedPorts;
+    }
+
+
+    @Override
+    public boolean isPortMappingReserved( final Host host, final Protocol protocol, final int externalPort,
+                                          final String ipAddress, final int internalPort )
+            throws NetworkManagerException
+    {
+        for ( final ReservedPortMapping mapping : getReservedPortMappings( host ) )
+        {
+            if ( mapping.getProtocol().name().equalsIgnoreCase( protocol.name() )
+                    && mapping.getExternalPort() == externalPort && mapping.getInternalPort() == internalPort && mapping
+                    .getIpAddress().equalsIgnoreCase( ipAddress ) )
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    @Override
+    public int mapContainerPort( final Host host, final Protocol protocol, final String containerIp,
+                                 final int containerPort ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+        Preconditions.checkNotNull( protocol );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerIp ) );
+        Preconditions.checkArgument( containerIp.matches( Common.IP_REGEX ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( containerPort, Common.MIN_PORT, Common.MAX_PORT ) );
+
+        CommandResult result = execute( host,
+                commands.getMapContainerPortToRandomPortCommand( protocol, containerIp, containerPort ) );
+
+        return Integer.parseInt( result.getStdOut().trim() );
+    }
+
+
+    @Override
+    public void mapContainerPort( final Host host, final Protocol protocol, final String containerIp,
+                                  final int containerPort, final int rhPort ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+        Preconditions.checkNotNull( protocol );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerIp ) );
+        Preconditions.checkArgument( containerIp.matches( Common.IP_REGEX ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( containerPort, Common.MIN_PORT, Common.MAX_PORT ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( rhPort, Common.MIN_PORT, Common.MAX_PORT ) );
+
+        execute( host,
+                commands.getMapContainerPortToSpecificPortCommand( protocol, containerIp, containerPort, rhPort ) );
+    }
+
+
+    @Override
+    public void removeContainerPortMapping( final Host host, final Protocol protocol, final String containerIp,
+                                            final int containerPort, final int rhPort ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+        Preconditions.checkNotNull( protocol );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerIp ) );
+        Preconditions.checkArgument( containerIp.matches( Common.IP_REGEX ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( containerPort, Common.MIN_PORT, Common.MAX_PORT ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( rhPort, Common.MIN_PORT, Common.MAX_PORT ) );
+
+        execute( host, commands.getRemoveContainerPortMappingCommand( protocol, containerIp, containerPort, rhPort ) );
+    }
+
+
+    @Override
+    public void mapContainerPortToDomain( final Host host, final Protocol protocol, final String containerIp,
+                                          final int containerPort, final int rhPort, final String domain,
+                                          final String sslCertPath, final LoadBalancing loadBalancing,
+                                          final boolean sslBackend ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+        Preconditions.checkNotNull( protocol );
+        Preconditions.checkArgument( protocol == Protocol.HTTP || protocol == Protocol.HTTPS );
+        //for https protocol there always must be an SSL cert specified
+        Preconditions.checkArgument( protocol == Protocol.HTTP || !Strings.isNullOrEmpty( sslCertPath ) );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerIp ) );
+        Preconditions.checkArgument( containerIp.matches( Common.IP_REGEX ) );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( domain ) );
+        Preconditions.checkArgument( domain.matches( Common.HOSTNAME_REGEX ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( containerPort, Common.MIN_PORT, Common.MAX_PORT ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( rhPort, Common.MIN_PORT, Common.MAX_PORT ) );
+
+        execute( host,
+                commands.getMapContainerPortToDomainCommand( protocol, containerIp, containerPort, rhPort, domain,
+                        sslCertPath, loadBalancing, sslBackend ) );
+    }
+
+
+    @Override
+    public void removeContainerPortDomainMapping( final Host host, final Protocol protocol, final String containerIp,
+                                                  final int containerPort, final int rhPort, final String domain )
+            throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+        Preconditions.checkNotNull( protocol );
+        Preconditions.checkArgument( protocol == Protocol.HTTP || protocol == Protocol.HTTPS );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerIp ) );
+        Preconditions.checkArgument( containerIp.matches( Common.IP_REGEX ) );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( domain ) );
+        Preconditions.checkArgument( domain.matches( Common.HOSTNAME_REGEX ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( containerPort, Common.MIN_PORT, Common.MAX_PORT ) );
+        Preconditions.checkArgument( NumUtil.isIntBetween( rhPort, Common.MIN_PORT, Common.MAX_PORT ) );
+
+        execute( host,
+                commands.getRemoveContainerPortDomainMappingCommand( protocol, containerIp, containerPort, rhPort,
+                        domain ) );
+    }
+
+
+    @Override
+    public String getResourceHostIp( final Host host ) throws NetworkManagerException
+    {
+        Preconditions.checkNotNull( host );
+
+        CommandResult result = execute( host, commands.getGetIPAddressCommand() );
+
+        return !Strings.isNullOrEmpty( result.getStdOut() ) ? result.getStdOut().trim() : result.getStdOut();
     }
 }

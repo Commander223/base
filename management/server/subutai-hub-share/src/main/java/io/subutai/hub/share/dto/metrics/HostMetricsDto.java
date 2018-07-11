@@ -1,31 +1,22 @@
 package io.subutai.hub.share.dto.metrics;
 
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 
 public class HostMetricsDto
 {
-    public static final String ROOT_PARTITION = "/";
-    public static final String MNT_PARTITION = "/mnt";
-    public static final List<String> RESOURCE_HOST_PARTITIONS =
-            Collections.unmodifiableList( Arrays.asList( ROOT_PARTITION, MNT_PARTITION ) );
-
-    public static final String WAN_INTERFACE = "wan";
-    public static final List<String> RESOURCE_HOST_INTERFACES =
-            Collections.unmodifiableList( Collections.singletonList( WAN_INTERFACE ) );
+    public static final String CURRENT = "current";
 
 
     public enum HostType
     {
-        RESOURCE_HOST, CONTAINER_HOST
+        RESOURCE_HOST, CONTAINER_HOST, UNKNOWN
     }
 
 
@@ -58,6 +49,33 @@ public class HostMetricsDto
 
     @JsonProperty( "createdTime" )
     private Date createdTime = new Date();
+
+    @JsonProperty( "startTime" )
+    private Date startTime;
+
+    @JsonProperty( "endTime" )
+    private Date endTime;
+
+    @JsonProperty( "osName" )
+    private String osName;
+
+    @JsonProperty( "ipAddress" )
+    private String ipAddress;
+
+    @JsonIgnore
+    private transient Long dbId = null;
+
+
+    public Long getDbId()
+    {
+        return dbId;
+    }
+
+
+    public void setDbId( final long dbId )
+    {
+        this.dbId = dbId;
+    }
 
 
     public String getHostId()
@@ -191,6 +209,54 @@ public class HostMetricsDto
     }
 
 
+    public Date getStartTime()
+    {
+        return startTime;
+    }
+
+
+    public void setStartTime( final Date startTime )
+    {
+        this.startTime = startTime;
+    }
+
+
+    public Date getEndTime()
+    {
+        return endTime;
+    }
+
+
+    public void setEndTime( final Date endTime )
+    {
+        this.endTime = endTime;
+    }
+
+
+    public String getOsName()
+    {
+        return osName;
+    }
+
+
+    public void setOsName( final String osName )
+    {
+        this.osName = osName;
+    }
+
+
+    public String getIpAddress()
+    {
+        return ipAddress;
+    }
+
+
+    public void setIpAddress( final String ipAddress )
+    {
+        this.ipAddress = ipAddress;
+    }
+
+
     @Override
     public String toString()
     {
@@ -203,8 +269,12 @@ public class HostMetricsDto
         sb.append( ", net=" ).append( net );
         sb.append( ", disk=" ).append( disk );
         sb.append( ", containersCount=" ).append( containersCount );
+        sb.append( ", osName=" ).append( osName );
         sb.append( ", management=" ).append( management );
         sb.append( ", createdTime=" ).append( createdTime );
+        sb.append( ", startTime=" ).append( startTime );
+        sb.append( ", endTime=" ).append( endTime );
+        sb.append( ", ipAddress=" ).append( ipAddress );
         sb.append( '}' );
         return sb.toString();
     }

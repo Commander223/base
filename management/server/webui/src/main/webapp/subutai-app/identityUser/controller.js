@@ -4,7 +4,6 @@ angular.module('subutai.identity-user.controller', [])
 	.controller('IdentityUserCtrl', IdentityUserCtrl)
 	.directive('pwCheck', pwCheck)
 	.directive('colSelect', colSelect);
-
 IdentityUserCtrl.$inject = ['$scope', 'identitySrv', 'SweetAlert', 'ngDialog', 'cfpLoadingBar', 'DTOptionsBuilder', 'DTColumnBuilder', '$resource', '$compile'];
 
 var trustedLevels = {
@@ -94,9 +93,9 @@ function IdentityUserCtrl($scope, identitySrv, SweetAlert, ngDialog, cfpLoadingB
 	vm.dtColumns = [
 		DTColumnBuilder.newColumn(null).withTitle('').notSortable().renderWith(actionEdit),
 		DTColumnBuilder.newColumn('userName').withTitle('Username'),
-		DTColumnBuilder.newColumn('type').withTitle('User type').renderWith(getUserType),
-		DTColumnBuilder.newColumn('trustLevel').withTitle('Trust Level').renderWith(getUserTrustLevel),
-		DTColumnBuilder.newColumn(null).withTitle('Roles').renderWith(rolesTags),
+//		DTColumnBuilder.newColumn('type').withTitle('User type').renderWith(getUserType),
+//		DTColumnBuilder.newColumn('trustLevel').withTitle('Trust Level').renderWith(getUserTrustLevel),
+//		DTColumnBuilder.newColumn(null).withTitle('Roles').renderWith(rolesTags),
 		DTColumnBuilder.newColumn('fullName').withTitle('Full name'),
 		DTColumnBuilder.newColumn('email').withTitle('E-mail'),
 		DTColumnBuilder.newColumn(null).withTitle('').notSortable().renderWith(actionDelete)
@@ -246,10 +245,16 @@ function IdentityUserCtrl($scope, identitySrv, SweetAlert, ngDialog, cfpLoadingB
 	}
 
 	function deleteUser(userId) {
+		identitySrv.hasEnvironments(userId).success(function (data) {
+            showConfirmationDialog(userId, data == true || data == 'true');
+		});
+	}
+
+	function showConfirmationDialog(userId, hasEnvironments){
 		var previousWindowKeyDown = window.onkeydown;
 		SweetAlert.swal({
 				title: "Are you sure?",
-				text: "You will not be able to recover this user!",
+				text: ( hasEnvironments? "This user has environments! " : "" ) + "You will not be able to recover this user!",
 				type: "warning",
 				showCancelButton: true,
 				confirmButtonColor: "#ff3f3c",
@@ -271,7 +276,6 @@ function IdentityUserCtrl($scope, identitySrv, SweetAlert, ngDialog, cfpLoadingB
 				}
 			});
 	}
-
 };
 
 function pwCheck() {

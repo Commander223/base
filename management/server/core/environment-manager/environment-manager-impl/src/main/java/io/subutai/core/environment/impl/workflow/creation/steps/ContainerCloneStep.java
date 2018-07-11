@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.commons.net.util.SubnetUtils;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import io.subutai.common.environment.CreateEnvironmentContainersResponse;
 import io.subutai.common.environment.Node;
@@ -31,7 +32,9 @@ import io.subutai.core.environment.api.exception.EnvironmentCreationException;
 import io.subutai.core.environment.impl.entity.EnvironmentContainerImpl;
 import io.subutai.core.environment.impl.entity.LocalEnvironment;
 import io.subutai.core.environment.impl.workflow.creation.steps.helpers.CreatePeerEnvironmentContainersTask;
+import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.peer.api.PeerManager;
+import io.subutai.hub.share.quota.ContainerQuota;
 
 
 /**
@@ -43,25 +46,29 @@ public class ContainerCloneStep
     private final String defaultDomain;
     private final Topology topology;
     private final LocalEnvironment environment;
+    private final IdentityManager identityManager;
     private final TrackerOperation operationTracker;
     private final String localPeerId;
     private PeerManager peerManager;
     protected PeerUtil<CreateEnvironmentContainersResponse> cloneUtil = new PeerUtil<>();
+    private Map<String, ContainerQuota> containerQuotas = Maps.newHashMap();
 
 
     public ContainerCloneStep( final String defaultDomain, final Topology topology, final LocalEnvironment environment,
-                               final PeerManager peerManager, final TrackerOperation operationTracker )
+                               final PeerManager peerManager, final IdentityManager identityManager,
+                               final TrackerOperation operationTracker )
     {
         this.defaultDomain = defaultDomain;
         this.topology = topology;
         this.environment = environment;
         this.peerManager = peerManager;
+        this.identityManager = identityManager;
         this.operationTracker = operationTracker;
         this.localPeerId = peerManager.getLocalPeer().getId();
     }
 
 
-    public void execute() throws EnvironmentCreationException, PeerException
+    public Map<String, ContainerQuota> execute() throws EnvironmentCreationException, PeerException
     {
 
         Map<String, Set<Node>> placement = topology.getNodeGroupPlacement();
@@ -76,7 +83,7 @@ public class ContainerCloneStep
         //remove already used container IPs
         for ( ContainerHost containerHost : environment.getContainerHosts() )
         {
-            addresses.remove( containerHost.getInterfaceByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp() );
+            addresses.remove( containerHost.getIp() );
         }
 
         //obtain available ip address count
@@ -107,7 +114,8 @@ public class ContainerCloneStep
             Peer peer = peerManager.getPeer( peerPlacement.getKey() );
 
             cloneUtil.addPeerTask( new PeerUtil.PeerTask<>( peer,
-                    new CreatePeerEnvironmentContainersTask( peer, peerManager.getLocalPeer(), environment,
+                    new CreatePeerEnvironmentContainersTask( identityManager, peer, peerManager.getLocalPeer(),
+                            environment,
                             addresses.subList( currentOffset, currentOffset + peerPlacement.getValue().size() ),
                             peerPlacement.getValue(), operationTracker ) ) );
 
@@ -119,8 +127,7 @@ public class ContainerCloneStep
         //collect results
         boolean succeeded = true;
 
-        for ( PeerUtil.PeerTaskResult<CreateEnvironmentContainersResponse> cloneResult : cloneResults
-                .getResults() )
+        for ( PeerUtil.PeerTaskResult<CreateEnvironmentContainersResponse> cloneResult : cloneResults.getResults() )
         {
             CreateEnvironmentContainersResponse response = cloneResult.getResult();
             String peerId = cloneResult.getPeer().getId();
@@ -131,6 +138,8 @@ public class ContainerCloneStep
         {
             throw new EnvironmentCreationException( "There were errors during container creation." );
         }
+
+        return containerQuotas;
     }
 
 
@@ -143,6 +152,8 @@ public class ContainerCloneStep
             EnvironmentContainerImpl c = buildContainerEntity( peerId, response );
 
             containers.add( c );
+
+            containerQuotas.put( c.getId(), response.getContainerQuota() );
         }
 
         if ( !responses.hasSucceeded() )
@@ -169,9 +180,9 @@ public class ContainerCloneStep
         final ContainerHostInfoModel infoModel =
                 new ContainerHostInfoModel( cloneResponse.getContainerId(), cloneResponse.getHostname(),
                         cloneResponse.getContainerName(), interfaces, cloneResponse.getTemplateArch(),
-                        ContainerHostState.RUNNING );
+                        ContainerHostState.RUNNING, environment.getId(), cloneResponse.getVlan() );
 
         return new EnvironmentContainerImpl( localPeerId, peerId, infoModel, cloneResponse.getTemplateId(),
-                defaultDomain, cloneResponse.getContainerSize(), cloneResponse.getResourceHostId() );
+                defaultDomain, cloneResponse.getContainerQuota(), cloneResponse.getResourceHostId() );
     }
 }

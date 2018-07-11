@@ -3,9 +3,9 @@
 angular.module('subutai.nodeReg.controller', [])
     .controller('NodeRegCtrl', NodeRegCtrl);
 
-NodeRegCtrl.$inject = [ 'nodeRegSrv', 'SweetAlert', 'DTOptionsBuilder', 'DTColumnDefBuilder', 'cfpLoadingBar'];
+NodeRegCtrl.$inject = [ '$scope', 'nodeRegSrv', 'SweetAlert', 'DTOptionsBuilder', 'DTColumnDefBuilder', 'cfpLoadingBar', 'ngDialog'];
 
-function NodeRegCtrl(nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilder, cfpLoadingBar) {
+function NodeRegCtrl($scope, nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilder, cfpLoadingBar, ngDialog) {
     var vm = this;
 
 	cfpLoadingBar.start();
@@ -19,7 +19,11 @@ function NodeRegCtrl(nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilde
 	//functions
 	vm.approve = approve;
 	vm.reject = reject;
+	vm.update = update;
 	vm.remove = remove;
+	vm.editingRh = {};
+	vm.changeNamePopup = changeNamePopup;
+	vm.setHostName = setHostName;
 
 	vm.dtOptions = DTOptionsBuilder
 			.newOptions()
@@ -32,7 +36,6 @@ function NodeRegCtrl(nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilde
 		DTColumnDefBuilder.newColumnDef(1),
 		DTColumnDefBuilder.newColumnDef(2)
 	];
-
 
 	function getNodes() {
 		nodeRegSrv.getData().success(function(data){
@@ -50,14 +53,14 @@ function NodeRegCtrl(nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilde
 		nodeRegSrv.approveReq( nodeId ).success(function (data) {
 			SweetAlert.swal(
 				"Success!",
-				"Node has been added to cluster.",
+				"Host has been approved",
 				"success"
 			);
 			LOADING_SCREEN('none');
 			getNodes();
 		}).error(function(error){
-			SweetAlert.swal("ERROR!", error, "error");
 			LOADING_SCREEN('none');
+			SweetAlert.swal("ERROR!", error.ERROR, "error");
 		});
 	}
 
@@ -68,33 +71,95 @@ function NodeRegCtrl(nodeRegSrv, SweetAlert, DTOptionsBuilder, DTColumnDefBuilde
 		nodeRegSrv.rejectReq( nodeId ).success(function (data) {
 			SweetAlert.swal(
 				"Success!",
-				"Node has been unregistered.",
+				"Host has been blocked",
 				"success"
 			);
 			LOADING_SCREEN('none');
 			getNodes();
 		}).error(function(error){
-			SweetAlert.swal("ERROR!", error, "error");
 			LOADING_SCREEN('none');
+			SweetAlert.swal("ERROR!", error.ERROR, "error");
 		});
 	}
 
-	function remove(nodeId) {
+	function update(nodeId) {
 		if(nodeId === undefined) return;
 
 		LOADING_SCREEN();
-		nodeRegSrv.removeReq( nodeId ).success(function (data) {
-			SweetAlert.swal(
-				"Success!",
-				"Node has been unregistered.",
-				"success"
-			);
+		nodeRegSrv.updateReq( nodeId ).success(function (data, status) {
+		    if(status == 200){
+                SweetAlert.swal(
+                    "Success!",
+                    "Host has been updated",
+                    "success"
+                );
+		    }else{
+                SweetAlert.swal(
+                    "Host is up to date!",
+                    "No updates",
+                    "info"
+                );
+			}
 			LOADING_SCREEN('none');
-			getNodes();
-		}).error(function(error){
-			SweetAlert.swal("ERROR!", error, "error");
+		}).error(function(data){
 			LOADING_SCREEN('none');
+			SweetAlert.swal("ERROR!", data.ERROR, "error");
 		});
 	}
+
+	function remove(nodeId, status) {
+		if(nodeId === undefined) return;
+
+		LOADING_SCREEN();
+        if(status == 'REJECTED'){
+            nodeRegSrv.unblockReq( nodeId ).success(function (data) {
+                SweetAlert.swal(
+                    "Success!",
+                    "Host has been unblocked",
+                    "success"
+                );
+                LOADING_SCREEN('none');
+                getNodes();
+            }).error(function(error){
+                LOADING_SCREEN('none');
+                SweetAlert.swal("ERROR!", error.ERROR, "error");
+            });
+		} else {
+             nodeRegSrv.removeReq( nodeId ).success(function (data) {
+                 SweetAlert.swal(
+                     "Success!",
+                     "Host has been removed",
+                     "success"
+                 );
+                 LOADING_SCREEN('none');
+                 getNodes();
+             }).error(function(error){
+                 LOADING_SCREEN('none');
+                 SweetAlert.swal("ERROR!", error.ERROR, "error");
+             });
+        }
+	}
+
+    function changeNamePopup( rh ) {
+        vm.editingRh = rh;
+
+        ngDialog.open({
+            template: 'subutai-app/nodeReg/partials/changeName.html',
+            scope: $scope,
+            className: 'b-build-environment-info'
+        });
+    }
+
+    function setHostName( rh, name ) {
+        LOADING_SCREEN();
+        nodeRegSrv.changeHostName( rh.id, name ).success( function (data) {
+            location.reload();
+        } ).error( function (error) {
+            ngDialog.closeAll();
+            LOADING_SCREEN('none');
+            SweetAlert.swal ("ERROR!", error.ERROR, "error");
+        } );
+    }
+
 };
 

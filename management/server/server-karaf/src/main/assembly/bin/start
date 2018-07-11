@@ -20,7 +20,6 @@
 
 rm -rf /opt/subutai-mng/data/cache/
 
-if [ "`grep -c '10.10.10.1 management gw.intra.lan' /etc/hosts`" == "0" ]; then echo "10.10.10.1 management gw.intra.lan" >> /etc/hosts; fi
 echo "management" > /etc/hostname
 
 # Line to add commands by autobuild (do not change it)
@@ -32,7 +31,6 @@ fi
 
 #Generate certificates before any configuration is applied
 /opt/subutai-mng/bin/influxdbinit.sh &
-/opt/subutai-mng/bin/certgen
 
 #Function to generate self signed certificate for peer
 generate_keystore_certificate() {
@@ -46,7 +44,7 @@ generate_keystore_certificate() {
     -validity 360 \
     -keysize 1024 \
     -keystore $file_path \
-    -dname "cn=subut.ai, ou=IT, o=Subutai, c=KG" \
+    -dname "cn=subutai.io, ou=IT, o=Subutai, c=KG" \
     -storepass subutai -keypass subutai
 }
 

@@ -6,7 +6,7 @@ import io.subutai.common.network.ReservedNetworkResources;
 import io.subutai.common.protocol.P2PConfig;
 import io.subutai.common.settings.Common;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
-import io.subutai.core.hubmanager.impl.entity.RhP2PIpEntity;
+import io.subutai.core.hubmanager.impl.model.RhP2PIpEntity;
 import io.subutai.core.hubmanager.impl.environment.state.Context;
 import io.subutai.core.hubmanager.impl.environment.state.StateHandler;
 import io.subutai.hub.share.dto.environment.EnvironmentInfoDto;
@@ -37,6 +37,10 @@ public class ReserveNetworkStateHandler extends StateHandler
 
             return resultDto;
         }
+        catch ( HubManagerException e )
+        {
+            throw e;
+        }
         catch ( Exception e )
         {
             throw new HubManagerException( e );
@@ -62,7 +66,8 @@ public class ReserveNetworkStateHandler extends StateHandler
 
             NetworkResourceImpl networkResource =
                     new NetworkResourceImpl( envInfo.getId(), envInfo.getVni(), envInfo.getP2pSubnet(),
-                            subnetWithoutMask, Common.HUB_ID );
+                            subnetWithoutMask, Common.HUB_ID, peerDto.getEnvironmentInfo().getOwnerName(),
+                            peerDto.getEnvironmentInfo().getOwnerId() );
 
             peerDto.setVlan( ctx.localPeer.reserveNetworkResource( networkResource ) );
         }

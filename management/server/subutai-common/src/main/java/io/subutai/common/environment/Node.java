@@ -7,7 +7,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import io.subutai.common.gson.required.GsonRequired;
-import io.subutai.common.peer.ContainerSize;
+import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 /**
@@ -22,8 +23,8 @@ public class Node
 
 
     @GsonRequired
-    @JsonProperty( "type" )
-    private ContainerSize type = ContainerSize.SMALL;
+    @JsonProperty( "quota" )
+    private ContainerQuota quota;
 
     @GsonRequired
     @JsonProperty( "peerId" )
@@ -40,6 +41,8 @@ public class Node
     @JsonProperty( "templateId" )
     private String templateId;
 
+    private String templateName;
+
 
     private Node()
     {
@@ -47,18 +50,18 @@ public class Node
 
 
     public Node( @JsonProperty( "hostname" ) final String hostname, @JsonProperty( "name" ) final String name,
-                 @JsonProperty( "type" ) ContainerSize type, @JsonProperty( "peerId" ) final String peerId,
+                 @JsonProperty( "quota" ) ContainerQuota quota, @JsonProperty( "peerId" ) final String peerId,
                  @JsonProperty( "hostId" ) final String hostId, @JsonProperty( "templateId" ) String templateId )
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ), "Invalid host name" );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( name ), "Invalid node group name" );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( templateId ), "Invalid template id" );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( hostId ), "Resource host id is null" );
-        Preconditions.checkNotNull( type );
+        Preconditions.checkNotNull( quota );
 
         this.hostname = hostname.replaceAll( "\\s+", "" );
         this.name = name;
-        this.type = type;
+        this.quota = quota;
         this.peerId = peerId;
         this.hostId = hostId;
         this.templateId = templateId;
@@ -71,29 +74,23 @@ public class Node
     }
 
 
-    public ContainerSize getType()
+    public ContainerQuota getQuota()
     {
-        return type;
+        return quota;
     }
 
 
-    public String getPeerId()
+    public void setDefaultQuota()
     {
-        return peerId;
-    }
-
-
-    public String getHostId()
-    {
-        return hostId;
+        this.quota = ContainerSize.TINY.getDefaultContainerQuota();
     }
 
 
     @Override
     public String toString()
     {
-        return "Node{" + "name='" + name + '\'' + ", templateId='" + templateId + '\'' + ", type=" + type + ", peerId='"
-                + peerId + '\'' + ", hostId='" + hostId + '\'' + ", hostname='" + hostname + '\'' + '}';
+        return "Node{" + "name='" + name + '\'' + ", templateId='" + templateId + '\'' + ", quota=" + quota
+                + ", peerId='" + peerId + '\'' + ", hostId='" + hostId + '\'' + ", hostname='" + hostname + '\'' + '}';
     }
 
 
@@ -114,5 +111,47 @@ public class Node
     public String getTemplateId()
     {
         return templateId;
+    }
+
+
+    public void setTemplateId( final String templateId )
+    {
+        this.templateId = templateId;
+    }
+
+
+    public String getPeerId()
+    {
+        return peerId;
+    }
+
+
+    public void setPeerId( final String peerId )
+    {
+        this.peerId = peerId;
+    }
+
+
+    public String getTemplateName()
+    {
+        return templateName;
+    }
+
+
+    public void setTemplateName( final String templateName )
+    {
+        this.templateName = templateName;
+    }
+
+
+    public String getHostId()
+    {
+        return hostId;
+    }
+
+
+    public void setHostId( final String hostId )
+    {
+        this.hostId = hostId;
     }
 }

@@ -16,15 +16,19 @@ public class TemplateDownloadTracker implements CommandCallback
     private final ResourceHostEntity resourceHostEntity;
     private final String environmentId;
 
-    final static String TEMPLATE_EXISTS_PATTERN = "\\[(\\w+) instance exist\\]";
-    final static String TEMPLATE_IS_BEING_INSTALLED_PATTERN = "\\[Installing template (\\w+)\\]";
-    final static String TEMPLATE_IS_BEING_DOWNLOADED_PATTERN = "\\[Downloading (.+)\\]";
-    final static String TEMPLATE_DOWNLOAD_PERCENT_PATTERN = "(\\d+\\.\\d+)%";
-    final static Pattern templateExistsPattern = Pattern.compile( TEMPLATE_EXISTS_PATTERN, Pattern.MULTILINE );
-    final static Pattern templateIsBeingInstalledPattern =
+    private final static String TEMPLATE_EXISTS_PATTERN = "\"(\\S+) instance exist";
+    private final static String TEMPLATE_IS_BEING_INSTALLED_PATTERN = "Installing template (\\S+)\"";
+    private final static String TEMPLATE_IS_BEING_UNPACKED_PATTERN = "Unpacking template (\\S+)\"";
+    private final static String TEMPLATE_IS_BEING_DOWNLOADED_PATTERN = "Downloading (.+)\"";
+    private final static String TEMPLATE_DOWNLOAD_PERCENT_PATTERN = "(\\d+\\.\\d+)%";
+    private final static Pattern templateExistsPattern = Pattern.compile( TEMPLATE_EXISTS_PATTERN, Pattern.MULTILINE );
+    private final static Pattern templateIsBeingInstalledPattern =
             Pattern.compile( TEMPLATE_IS_BEING_INSTALLED_PATTERN, Pattern.MULTILINE );
-    final static Pattern templateIsBeingDownloadedPattern = Pattern.compile( TEMPLATE_IS_BEING_DOWNLOADED_PATTERN );
-    final static Pattern templateDownloadPercentPattern = Pattern.compile( TEMPLATE_DOWNLOAD_PERCENT_PATTERN );
+    private final static Pattern templateIsBeingUnpackedPattern =
+            Pattern.compile( TEMPLATE_IS_BEING_UNPACKED_PATTERN, Pattern.MULTILINE );
+    private final static Pattern templateIsBeingDownloadedPattern =
+            Pattern.compile( TEMPLATE_IS_BEING_DOWNLOADED_PATTERN );
+    private final static Pattern templateDownloadPercentPattern = Pattern.compile( TEMPLATE_DOWNLOAD_PERCENT_PATTERN );
 
     private String currentTemplate;
 
@@ -88,6 +92,17 @@ public class TemplateDownloadTracker implements CommandCallback
                 {
                     resourceHostEntity
                             .updateTemplateDownloadProgress( environmentId, installingMatcher.group( 1 ), 100 );
+                }
+            }
+
+            Matcher unpackingMatcher = templateIsBeingUnpackedPattern.matcher( response.getStdOut() );
+            //suppose if a template is being unpacked that indicates it is 100% downloaded
+            if ( unpackingMatcher.groupCount() > 0 )
+            {
+                while ( unpackingMatcher.find() )
+                {
+                    resourceHostEntity
+                            .updateTemplateDownloadProgress( environmentId, unpackingMatcher.group( 1 ), 100 );
                 }
             }
         }

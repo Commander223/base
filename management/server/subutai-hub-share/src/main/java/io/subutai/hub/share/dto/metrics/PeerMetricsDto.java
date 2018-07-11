@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.base.Preconditions;
 
 
 @JsonIgnoreProperties( ignoreUnknown = true )
@@ -28,17 +29,25 @@ public class PeerMetricsDto
     @JsonProperty( "metrics" )
     private Set<HostMetricsDto> metrics = new HashSet<>();
 
+    @JsonProperty( "registeredRhIds" )
+    private Set<String> registeredRhIds = new HashSet<>();
+
 
     @JsonCreator
     public PeerMetricsDto( @JsonProperty( value = "peerId", required = true ) final String peerId,
                            @JsonProperty( value = "startTime", required = true ) final Long startTime,
                            @JsonProperty( value = "endTime", required = true ) final Long endTime,
-                           @JsonProperty( value = "metrics", required = true ) final Set<HostMetricsDto> metrics )
+                           @JsonProperty( value = "metrics", required = true ) final Set<HostMetricsDto> metrics,
+                           @JsonProperty( value = "registeredRhIds", required = true )
+                           final Set<String> registeredRhIds,
+                           @JsonProperty( value = "createdTime", required = true ) Long createdTime )
     {
         this.peerId = peerId;
         this.startTime = startTime;
         this.endTime = endTime;
         this.metrics = metrics;
+        this.registeredRhIds = registeredRhIds;
+        this.createdTime = createdTime;
     }
 
 
@@ -47,6 +56,7 @@ public class PeerMetricsDto
         this.peerId = peerId;
         this.startTime = startTime;
         this.endTime = endTime;
+        this.createdTime = System.currentTimeMillis();
     }
 
 
@@ -118,6 +128,20 @@ public class PeerMetricsDto
         }
 
         this.metrics.add( metrics );
+    }
+
+
+    public Set<String> getRegisteredRhIds()
+    {
+        return registeredRhIds;
+    }
+
+
+    public void setRegisteredRhIds( final Set<String> registeredRhIds )
+    {
+        Preconditions.checkNotNull( registeredRhIds );
+
+        this.registeredRhIds = registeredRhIds;
     }
 
 

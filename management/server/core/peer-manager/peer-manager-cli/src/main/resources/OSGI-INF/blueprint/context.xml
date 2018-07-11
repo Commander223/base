@@ -1,7 +1,7 @@
 <blueprint xmlns="http://www.osgi.org/xmlns/blueprint/v1.0.0">
 
   <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
-    <command name="peer/ls">
+    <command name="peer/list">
       <action class="io.subutai.core.peer.cli.ListCommand">
         <property name="peerManager" ref="peerManager" />
       </action>
@@ -59,6 +59,30 @@
   <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
     <command name="peer/status">
       <action class="io.subutai.core.peer.cli.RegistrationStatusCommand">
+        <property name="peerManager" ref="peerManager" />
+      </action>
+    </command>
+  </command-bundle>
+
+  <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
+    <command name="peer/requests">
+      <action class="io.subutai.core.peer.cli.ListRequestsCommand">
+        <property name="peerManager" ref="peerManager" />
+      </action>
+    </command>
+  </command-bundle>
+
+  <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
+    <command name="peer/approve">
+      <action class="io.subutai.core.peer.cli.ApprovePeerCommand">
+        <property name="peerManager" ref="peerManager" />
+      </action>
+    </command>
+  </command-bundle>
+
+  <command-bundle xmlns="http://karaf.apache.org/xmlns/shell/v1.0.0">
+    <command name="peer/cancel">
+      <action class="io.subutai.core.peer.cli.CancelPeerCommand">
         <property name="peerManager" ref="peerManager" />
       </action>
     </command>

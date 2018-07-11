@@ -5,7 +5,7 @@
   <parent>
     <artifactId>security-manager</artifactId>
     <groupId>io.subutai</groupId>
-    <version>4.0.12-SNAPSHOT</version>
+    <version>7.0.5-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
@@ -94,6 +94,7 @@
               {local-packages};version=${project.version};-noimport:=true
             </Export-Package>
             <Import-Package>*</Import-Package>
+            <Snapshot>SNAPSHOT</Snapshot>
           </instructions>
         </configuration>
       </plugin>

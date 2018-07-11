@@ -22,15 +22,12 @@ import org.slf4j.LoggerFactory;
 /**
  * This is a cache with entries having time-to-live setting. After the specified interval entry gets evicted (expires).
  * It is possible to add expiry callback to an entry to handle the expiration event
- *
- * TODO review possibility to use simple map and synchronize on it to avoid concurrent issues
- * OR properly synchronize eviction with get(update timestamp)
  */
 public class ExpiringCache<K, V>
 {
     private static final Logger LOG = LoggerFactory.getLogger( ExpiringCache.class.getName() );
 
-    private static final long EVICTION_RUN_INTERVAL_MS = 10;
+    private static final long EVICTION_RUN_INTERVAL_MS = 100;
     private final Map<K, CacheEntry<V>> entries = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService evictor;
@@ -69,13 +66,24 @@ public class ExpiringCache<K, V>
         for ( Iterator<Map.Entry<K, CacheEntry<V>>> it = entries.entrySet().iterator(); it.hasNext(); )
         {
             final Map.Entry<K, CacheEntry<V>> entry = it.next();
-            if ( entry.getValue().isExpired() )
+
+            entry.getValue().lock();
+
+            try
             {
-                it.remove();
-                if ( entry.getValue() instanceof CacheEntryWithExpiryCallback )
+                if ( entry.getValue().isExpired() )
                 {
-                    evictEntry( ( CacheEntryWithExpiryCallback ) entry.getValue() );
+                    it.remove();
+
+                    if ( entry.getValue() instanceof CacheEntryWithExpiryCallback )
+                    {
+                        evictEntry( ( CacheEntryWithExpiryCallback ) entry.getValue() );
+                    }
                 }
+            }
+            finally
+            {
+                entry.getValue().unlock();
             }
         }
     }
@@ -106,13 +114,54 @@ public class ExpiringCache<K, V>
         if ( key != null )
         {
             CacheEntry<V> entry = entries.get( key );
-            if ( entry != null && !entry.isExpired() )
+
+            if ( entry != null )
             {
-                entry.resetCreationTimestamp();
-                return entry.getValue();
+                entry.lock();
+
+                try
+                {
+                    if ( !entry.isExpired() )
+                    {
+                        entry.resetCreationTimestamp();
+                        return entry.getValue();
+                    }
+                }
+                finally
+                {
+                    entry.unlock();
+                }
             }
         }
         return null;
+    }
+
+
+    public boolean keyExists( K key )
+    {
+        if ( key != null )
+        {
+            CacheEntry<V> entry = entries.get( key );
+
+            if ( entry != null )
+            {
+                entry.lock();
+
+                try
+                {
+                    if ( !entry.isExpired() )
+                    {
+                        return true;
+                    }
+                }
+                finally
+                {
+                    entry.unlock();
+                }
+            }
+        }
+
+        return false;
     }
 
 

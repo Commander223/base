@@ -578,12 +578,24 @@ input[type=checkbox] {
 }
 
 .b-main-table_auto-width {
-	width: auto;
+    table-layout: fixed;
+    width: 99% !important;
 	margin: 0 0 0 0;
+    font-size: 13px;
+    color: #04346E;
+    text-align: left;
+    margin: 5px;
 }
 
 .b-main-table_auto-width td {
 	vertical-align: top;
+	padding-right: 5px;
+}
+
+.log-btns-tbl{
+    margin-top: 5px;
+    margin-bottom: 5px;
+    float: right;
 }
 
 .b-main-table_auto-width tr:hover {
@@ -949,6 +961,10 @@ tip.description-tooltip {
     background-image: url('../assets/elements/buttons/b-icon-edit.svg');
 }
 
+.b-icon_template{
+    background-image: url('../assets/templates/no-image.jpg');
+}
+
 .b-icon_info {
     background-image: url('../assets/elements/buttons/Info_icon-01.svg');
 }
@@ -1115,6 +1131,11 @@ tip.description-tooltip {
     width: 355px;
 }
 
+.b-popup_template_upload {
+    width: 400px;
+}
+
+
 .b-popup_environment-creation {
     width: 430px;
 }
@@ -1146,6 +1167,16 @@ tip.description-tooltip {
     color: #04346E;
     border-bottom: 1px solid #CCCEEE;
     text-transform: capitalize;
+    background-color: #f8fbfd;
+}
+
+.b-popup__header_small {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px;
+    font-size: 14px;
+    color: #04346E;
+    border-bottom: 1px solid #CCCEEE;
     background-color: #f8fbfd;
 }
 
@@ -2476,6 +2507,12 @@ td.b-main-table__status-col {
     top: 50px;
 }
 
+.b-progress-download{
+    background: url("../assets/elements/progress.svg") no-repeat;
+    background-position: center;
+    margin-left: 10px;
+}
+
 .b-login:after {
     content: "";
     position: absolute;
@@ -2930,6 +2967,7 @@ td.b-main-table__status-col {
     background: #fff url("../assets/elements/patter-stripes.png");
 }
 .b-cloud-space__work {
+    overflow: scroll;
     height: 550px;
 	position: relative;
 	z-index: 2;
@@ -3352,8 +3390,12 @@ td.b-main-table__status-col {
 	width: 60px;
 }
 
-.b-hub-status_active .b-hub-menu-icon path {
+.b-hub-status_regged .b-hub-menu-icon path {
 	fill: #8CC63F;
+}
+
+.b-hub-status_unregged .b-hub-menu-icon path {
+	fill: #E6EAF5;
 }
 
 .b-hub-status_offline .b-hub-menu-icon path {
@@ -3628,9 +3670,11 @@ td.b-main-table__status-col {
 	font-size: 12px;
 	color: #04346E;
 	line-height: 17px;
-	padding: 0 0 0 10px;
+	padding: 0 20px 0 10px;
 }
-
+.b-template-settings__text_input {
+    margin: 0 0 10px;
+}
 .b-template-settings .body,
 .b-template-settings .footer {
     font-size: 13px;
@@ -3644,7 +3688,10 @@ td.b-main-table__status-col {
 	vertical-align: top;
 	font-size: 14px;
 }
-
+.b-template-settings__coll_quota {
+    min-width: 150px;
+    width: inherit;
+}
 .b-template-settings .footer a {
     font-size: 13px;
 }
@@ -3677,7 +3724,10 @@ td.b-main-table__status-col {
 .b-form-input_textarea {
     height: 100px;
 }
-
+.b-form-input_custom-quota {
+    width: 60px;
+    float: right;
+}
 .e2e-sign-message {
     /*width: 370px;*/
     height: 160px;
@@ -3712,8 +3762,7 @@ td.b-main-table__status-col {
 	background-color: #f8fbfd;
     padding: 10px 14px;
     overflow: auto;
-	width: 800px;
-	height: 550px;
+	height: 500px;
 	border: 1px solid #CCCEEE;
 }
 
@@ -3917,6 +3966,7 @@ span.ssh-info-button
 .b-template-settings_plugins {
 	top: 50px;
 	right: 1px;
+	width: 300px;
 }
 
 .b-template-settings_plugins:before {
@@ -4045,3 +4095,13 @@ a[disabled] {
     transform: rotate(180deg);
 }
 
+
+.reset-pwd {
+    font-size: 14px !important;
+    padding-top: 15px;
+    cursor: pointer;
+}
+
+/*.dataTables_empty {
+  display:none;
+}*/

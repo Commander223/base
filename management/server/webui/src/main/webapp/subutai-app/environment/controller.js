@@ -3,6 +3,7 @@
 angular.module('subutai.environment.controller', [])
 	.controller('EnvironmentViewCtrl', EnvironmentViewCtrl)
 	.directive('fileModel', fileModel)
+    .directive('onErrorSrc', onErrorSrc)
 	.directive('onReadFile', onReadFile)
 	.filter( 'sshEmail', function () {
 		return function( input, modify )
@@ -21,7 +22,13 @@ angular.module('subutai.environment.controller', [])
 				return false;
 			}
 		}
-	}]);
+	}]);//.factory('DTLoadingTemplate', dtLoadingTemplate);
+
+//	function dtLoadingTemplate() {
+//        return {
+//            html: ''
+//        };
+//    }
 
 EnvironmentViewCtrl.$inject = ['$scope', '$rootScope', 'environmentService', 'trackerSrv', 'identitySrv', 'SweetAlert', '$resource', '$compile', 'ngDialog', '$timeout', '$sce', '$stateParams', 'DTOptionsBuilder', 'DTColumnDefBuilder', '$state'];
 fileModel.$inject = ['$parse'];
@@ -87,9 +94,31 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 	vm.shareEnvironment = shareEnvironment;
 	vm.addUser2Stack = addUser2Stack;
 	vm.removeUserFromStack = removeUserFromStack;
+	vm.humanFileSize = humanFileSize;
+
+    function humanFileSize(bytes, si) {
+        var thresh = si ? 1000 : 1024;
+        if(Math.abs(bytes) < thresh) {
+            return bytes + ' B';
+        }
+        var units = si
+            ? ['kB','MB','GB','TB','PB','EB','ZB','YB']
+            : ['KiB','MiB','GiB','TiB','PiB','EiB','ZiB','YiB'];
+        var u = -1;
+        do {
+            bytes /= thresh;
+            ++u;
+        } while(Math.abs(bytes) >= thresh && u < units.length - 1);
+        return bytes.toFixed(1)+' '+units[u];
+    }
+
 
 	//plugins
 	vm.gotToPlugin = gotToPlugin;
+
+    $scope.onTextFocus = function ($event) {
+      $event.target.select();
+    };
 
 	function changeMode(modeStatus) {
 		if(modeStatus) {
@@ -125,12 +154,28 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 					vm.containersTypeInfo[type] = {};
 				}
 
-				vm.containersTypeInfo[type][property] = data[i].value;
+				vm.containersTypeInfo[type][property] = data[i].value.replace(/iB/ig,"B");
 			}
 		});
 
 
+    function dynamicSort(property) {
+        var sortOrder = 1;
+        if(property[0] === "-") {
+            sortOrder = -1;
+            property = property.substr(1);
+        }
+        return function (a,b) {
+            var result = (a[property] < b[property]) ? -1 : (a[property] > b[property]) ? 1 : 0;
+            return result * sortOrder;
+        }
+    }
+
+
+
 	vm.containersTotal = [];
+	var eventSet=false;
+	var sortOrder='asc';
 	function loadEnvironments() {
 
 		if( !vm.restInProgress )
@@ -143,6 +188,20 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 					data[i].containersByQuota = getContainersSortedByQuota(data[i].containers);
 					environmentsList.push(data[i]);
 				}
+
+				environmentsList.sort(dynamicSort((sortOrder == 'desc' ? '-' : '') + 'name'));
+
+				if(!eventSet){
+                    var table = $('#envTable').dataTable();
+
+                    table.on('click', 'th', function() {
+                        var info = table.fnSettings().aaSorting;
+                        sortOrder = info[0][1];
+                    });
+
+                    eventSet = true;
+                }
+
 				vm.environments = environmentsList;
 				vm.restInProgress = false;
 			}).error(function (error){
@@ -157,10 +216,6 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 		loadEnvironments();
 	});
 
-	environmentService.getStrategies().success(function (data) {
-		vm.strategies = data;
-	});
-
 	environmentService.getDomainStrategies().success(function (data) {
 		vm.domainStrategies = data;
 	});
@@ -170,7 +225,6 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 		vm.dtInstance = {};
 		vm.dtOptionsInstallTable = DTOptionsBuilder
 			.newOptions()
-			.withOption('order', [[ 1, "asc" ]])
 			.withOption('stateSave', true)
 			//.withOption('paging', false)
 			.withOption('searching', false)
@@ -184,6 +238,9 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 			DTColumnDefBuilder.newColumnDef(4).notSortable(),
 			DTColumnDefBuilder.newColumnDef(5).notSortable()
 		];
+
+
+
 	}
 
 	var refreshTable;
@@ -298,7 +355,7 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 		for (var index = 0; index < containers.length; index++) {
 
 			var container = containers[index];
-			var remoteProxyContainer = !container.local && container.dataSource == "hub";
+			var remoteProxyContainer = !container.local && container.dataSource != "subutai";
 
 			// We don't show on UI containers created by Hub, located on other peers.
 			// See details: io.subutai.core.environment.impl.adapter.EnvironmentAdapter.
@@ -452,9 +509,9 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 	{
 		var env = getEnvironment( envId );
 
-		if ( env != null && env.dataSource == "hub" )
+		if ( env != null && env.dataSource != "subutai" )
 		{
-			SweetAlert.swal( "Feature coming soon...", "This environment created on Hub. Please use Hub to manage it.", "success");
+			SweetAlert.swal( "Feature coming soon...", "This environment created on Bazaar. Please use Bazaar to manage it.", "success");
 
 			return true;
 		}
@@ -506,8 +563,8 @@ function EnvironmentViewCtrl($scope, $rootScope, environmentService, trackerSrv,
 
 			vm.sshKeysList.splice(index, 1);
 			LOADING_SCREEN('none');
-		}).error( function(error) {
-			SweetAlert.swal("Error", "Error: " + error, "error");
+		}).error( function(data) {
+			SweetAlert.swal("Error", "Error: " + data.ERROR, "error");
 			ngDialog.closeAll();
 			LOADING_SCREEN('none');
 		});
@@ -799,5 +856,17 @@ function onReadFile($parse) {
 			});
 		}
 	};
+}
+
+function onErrorSrc() {
+    return {
+        link: function(scope, element, attrs) {
+            element.bind('error', function() {
+                if (attrs.src != attrs.onErrorSrc) {
+                    attrs.$set('src', attrs.onErrorSrc);
+                }
+            });
+        }
+    }
 }
 

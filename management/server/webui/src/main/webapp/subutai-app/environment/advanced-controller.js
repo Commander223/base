@@ -3,7 +3,7 @@
 angular.module('subutai.environment.adv-controller', [])
     .controller('AdvancedEnvironmentCtrl', AdvancedEnvironmentCtrl);
 
-AdvancedEnvironmentCtrl.$inject = ['$scope', '$rootScope', 'environmentService', 'trackerSrv', 'SweetAlert', 'ngDialog'];
+AdvancedEnvironmentCtrl.$inject = ['$scope', '$rootScope', 'environmentService', 'trackerSrv', 'SweetAlert', 'ngDialog', 'identitySrv', 'templateSrv'];
 
 var graph = new joint.dia.Graph;
 var paper;
@@ -16,11 +16,12 @@ var PEER_SPACE = 30;
 
 var RH_WIDTH = 100;
 var RH_SPACE = 10;
-var templatesList = [];
 
-function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, trackerSrv, SweetAlert, ngDialog) {
+function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, trackerSrv, SweetAlert, ngDialog, identitySrv, templateSrv) {
 
     var vm = this;
+
+	checkCDNToken(templateSrv, $rootScope)
 
     vm.buildEnvironment = buildEnvironment;
     vm.buildEditedEnvironment = buildEditedEnvironment;
@@ -40,7 +41,9 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     vm.nodeStatus = 'Add to';
     vm.nodeList = [];
     vm.colors = quotaColors;
-    vm.templates = [];
+    vm.templates = {};
+    vm.templatesList = [];
+
 
     vm.excludedContainers = [];
     vm.cubeGrowth = 1;
@@ -52,6 +55,7 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     vm.editingEnv = false;
     vm.isEditing = false;
     vm.downloadProgress = '';
+    vm.rhId = '';
 
     // functions
 
@@ -69,22 +73,65 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     //plugins actions
     vm.selectPlugin = selectPlugin;
     vm.setTemplatesByPlugin = setTemplatesByPlugin;
+    vm.loadOwnTemplates = loadOwnTemplates;
 
-    // @todo workaround
-    environmentService.getTemplates()
-        .then(function (data) {
-            vm.templates = data;
-            getFilteredTemplates();
-        });
+    vm.getCdnToken = getCdnToken;
 
-    function getFilteredTemplates() {
-        vm.templatesList = [];
-        for (var i in vm.templates) {
-            if (vm.templatesType == 'all' || i == vm.templatesType) {
-                vm.templatesList = vm.templatesList.concat(vm.templates[i]);
+    function getCdnToken(){
+        return localStorage.getItem('cdnToken');
+    }
+
+    function loadOwnTemplates() {
+        templateSrv.getOwnTemplates()
+            .then(function (data) {
+                vm.templates['own'] = data;
+                getFilteredTemplates();
+            });
+    }
+
+    function loadTemplates(callback) {
+        templateSrv.getTemplates()
+            .then(function (data) {
+                vm.templates['all'] = data;
+                getFilteredTemplates(callback);
+            });
+    }
+
+    loadTemplates();
+    loadOwnTemplates();
+
+    $rootScope.$on('cdnTokenSet', function (event, data) {
+        loadOwnTemplates();
+    });
+
+    function addUniqueTemplates(filteredTemplates, groupedTemplates){
+        for( var i in groupedTemplates){
+            var found = false;
+            for( var j in filteredTemplates){
+                if( groupedTemplates[i].id == filteredTemplates[j].id){
+                    found = true;
+                    break;
+                }
+            }
+            if(!found){
+                filteredTemplates.push(groupedTemplates[i]);
             }
         }
-		templatesList = vm.templatesList;
+        return filteredTemplates;
+    }
+
+    function getFilteredTemplates(callback) {
+        var templatesLst = [];
+
+        for (var i in vm.templates) {
+            if (i == vm.templatesType) {
+                templatesLst = addUniqueTemplates(templatesLst, vm.templates[i]);
+            }
+        }
+
+        vm.templatesList = templatesLst;
+
+        if(callback) callback();
     }
 
     function getPeers() {
@@ -118,7 +165,7 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             .success(function (data) {
                 for (var i = 0; i < data.length; i++) {
                     if (data[i].description.includes(environmentId)) {
-                        getLogById(data[i].id, true, undefined, environmentId);
+                        getLogById(data[i].id, environmentId);
                         break;
                     }
                 }
@@ -128,81 +175,60 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
         });
     }
 
-    function checkLastLog(status, log) {
-        if (log === undefined || log === null) log = false;
-        var lastLog = vm.logMessages[vm.logMessages.length - 1];
+    var timeoutId;
 
-        if (log) {
-            var logObj = JSON.parse(log.substring(0, log.length - 1));
-            lastLog.time = moment(logObj.date).format('HH:mm:ss');
-        } else {
-            lastLog.time = moment().format('HH:mm:ss');
-        }
+    function getLogById(id, envId) {
 
-        if (status === true) {
-            lastLog.status = 'success';
-            lastLog.classes = ['fa-check', 'g-text-green'];
-        } else {
-            lastLog.status = 'success';
-            lastLog.classes = ['fa-times', 'g-text-red'];
-        }
-    }
-
-    function getLogById(id, checkLast, prevLogs, envId) {
-        if (checkLast === undefined || checkLast === null) checkLast = false;
-        if (prevLogs === undefined || prevLogs === null) prevLogs = false;
-
+        clearTimeout(timeoutId);
 
         trackerSrv.getDownloadProgress(envId)
             .success(function (data) {
 
-                if( data.length > 0 ) {
+                if (data.length > 0) {
 
-					data.sort();
+                    data.sort();
 
-					var output = '<table class="b-main-table b-main-table_progrss">';
-					var checker = false;
-					for( var i = 0; i < data.length; i++ ) {
+                    var output = '<table class="b-main-table b-main-table_progrss">';
+                    var checker = false;
+                    for (var i = 0; i < data.length; i++) {
 
-						output += [
-							'<tr>',
-								'<th colspan="2">',
-									'Peer ' + shortenIdName(data[i].peerId, 3),
-								'</th>',
-							'</tr>',
-						].join('');
-						for( var j = 0; j < data[i].templatesDownloadProgress.length; j++ ) {
-							var p = data[i].templatesDownloadProgress[j];
+                        output += [
+                            '<tr>',
+                            '<th colspan="2">',
+                            'Peer ' + shortenIdName(data[i].peerId, 3),
+                            '</th>',
+                            '</tr>',
+                        ].join('');
+                        for (var j = 0; j < data[i].templatesDownloadProgress.length; j++) {
+                            var p = data[i].templatesDownloadProgress[j];
 
-							for (var tpl in p.templatesDownloadProgress) {
-								output += [
-									'<tr>',
-										'<td>',
-											'RH ' + shortenIdName(p.rhId, 3),
-										'</td>',
-										'<td>',
-											'<div class="b-progress-cloud b-progress-cloud_white b-progress-cloud_big">',
-												'<div class="b-progress-cloud-fill" style="width: ' + p.templatesDownloadProgress[tpl] + '%;"></div>',
-												'<span class="b-progress-cloud-text">' + tpl + '</span>',
-											'</div>',
-										'</td>',
-									'</tr>'
-								].join('');
-								if( p.templatesDownloadProgress[tpl] != 100 ) {
-									checker = true;
-								}
-							}
-						}
-					}
-					output += '</table>';
+                            for (var tpl in p.templatesDownloadProgress) {
+                                output += [
+                                    '<tr>',
+                                    '<td>',
+                                    'RH ' + shortenIdName(p.rhId, 3),
+                                    '</td>',
+                                    '<td>',
+                                    '<div class="b-progress-cloud b-progress-cloud_white b-progress-cloud_big">',
+                                    '<div class="b-progress-cloud-fill" style="width: ' + p.templatesDownloadProgress[tpl] + '%;"></div>',
+                                    '<span class="b-progress-cloud-text">' + tpl + '</span>',
+                                    '</div>',
+                                    '</td>',
+                                    '</tr>'
+                                ].join('');
+                                if (p.templatesDownloadProgress[tpl] != 100) {
+                                    checker = true;
+                                }
+                            }
+                        }
+                    }
+                    output += '</table>';
 
 
-                    if( checker == true )
-                    {
+                    if (checker == true) {
                         $('.js-download-progress').html(output);
                     }
-                    else
-                    {
+                    else {
                         $('.js-download-progress').html('');
                     }
                 }
@@ -216,88 +242,61 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
 
         trackerSrv.getOperation('ENVIRONMENT MANAGER', id)
             .success(function (data) {
-                if (data.state == 'RUNNING') {
 
-                    if (checkLast) {
-                        checkLastLog(true);
-                    }
+                  if(data.state == 'RUNNING') {
+                      timeoutId = setTimeout(function() {
+                          getLogById(id, envId);
+                      }, 2000);
+                  }
 
-                    var logs = data.log.split(/(?:\r\n|\r|\n)/g);
-                    var result = [];
-                    var i = 0;
-                    if (prevLogs) {
-                        i = prevLogs.length;
-                        if (logs.length > prevLogs.length) {
-                            checkLastLog(true);
-                        }
-                    }
-                    for (i; i < logs.length; i++) {
+                  var logs = atob(data.log).split('},');
+                  var result = [];
+                  for(var i = 0; i < logs.length; i++) {
 
-                        var logCheck = logs[i].replace(/ /g, '');
-                        if (logCheck.length > 0) {
+                      var logCheck = logs[i].replace(/ /g,'');
+                      if(logCheck.length > 0) {
+                          var logObj = JSON.parse(logs[i] + '}');
+                          var logTime = moment(logObj.date).format('HH:mm:ss');
 
-                            var logObj = JSON.parse(logs[i].substring(0, logs[i].length - 1));
-                            var logTime = moment(logObj.date).format('HH:mm:ss');
+                          var logStatus = 'success';
+                          var logClasses = ['fa-check', 'g-text-green'];
 
-                            var logStatus = 'success';
-                            var logClasses = ['fa-check', 'g-text-green'];
+                          if(i+2 == logs.length) {
+                              if(data.state == 'RUNNING') {
+                                  logTime = '';
+                                  logStatus = 'in-progress';
+                                  logClasses = ['fa-spinner', 'fa-pulse'];
+                              }else if(data.state == 'FAILED') {
+                                  logStatus = 'success';
+                                  logClasses = ['fa-times', 'g-text-red'];
+                              }else{
+                                  logStatus = 'success';
+                                  logClasses = ['fa-check', 'g-text-green'];
+                              }
+                          }
 
-                            if (i + 1 == logs.length) {
-                                logTime = '';
-                                logStatus = 'in-progress';
-                                logClasses = ['fa-spinner', 'fa-pulse'];
-                            }
+                          var  currentLog = {
+                              "time": logTime,
+                              "status": logStatus,
+                              "classes": logClasses,
+                              "log": logObj.log
+                          };
+                          result.push(currentLog);
 
-                            var currentLog = {
-                                "time": logTime,
-                                "status": logStatus,
-                                "classes": logClasses,
-                                "text": logObj.log
-                            };
-                            result.push(currentLog);
+                      }
+                  }
 
-                        }
-                    }
+                  vm.logMessages =result;
 
-                    vm.logMessages = vm.logMessages.concat(result);
+                  if(data.state != 'RUNNING') {
+                      vm.buildCompleted = true;
+                      vm.isEditing = false;
 
-                    setTimeout(function () {
-                        getLogById(id, false, logs, envId);
-                    }, 2000);
-
-                    return result;
-                } else {
-                    if (data.state == 'FAILED') {
-                        checkLastLog(false);
-                    } else {
-                        //SweetAlert.swal("Success!", "Your environment has been built successfully.", "success");
-
-                        if (prevLogs) {
-                            var logs = data.log.split(/(?:\r\n|\r|\n)/g);
-                            if (logs.length > prevLogs.length) {
-                                checkLastLog(true, logs[logs.length - 1]);
-                            }
-                        } else {
-                            checkLastLog(true);
-                        }
-                        var currentLog = {
-                            "time": moment().format('HH:mm:ss'),
-                            "status": 'success',
-                            "classes": ['fa-check', 'g-text-green'],
-                            "text": 'Your environment has been built successfully'
-                        };
-                        vm.logMessages.push(currentLog);
-                        vm.buildCompleted = true;
-                        vm.editingEnv = false;
-                        vm.isEditing = false;
-
-                    }
-
-                    $('.js-download-progress').html('');
-                    $rootScope.notificationsUpdate = 'getLogByIdAdv';
-                    $scope.$emit('reloadEnvironmentsList');
-                    clearWorkspace();
-                }
+                      $('.js-download-progress').html('');
+                      $rootScope.notificationsUpdate = 'getLogByIdAdv';
+                      $scope.$emit('reloadEnvironmentsList');
+                      clearWorkspace();
+                  }
             }).error(function (error) {
             console.log(error);
         });
@@ -312,7 +311,7 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             "time": '',
             "status": 'in-progress',
             "classes": ['fa-spinner', 'fa-pulse'],
-            "text": 'Registering environment'
+            "log": 'Registering environment'
         };
         vm.logMessages.push(currentLog);
 
@@ -320,18 +319,15 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             .success(function (data) {
                 vm.newEnvID = data;
 
-                checkLastLog(true);
-
                 currentLog = {
                     "time": '',
                     "status": 'in-progress',
                     "classes": ['fa-spinner', 'fa-pulse'],
-                    "text": 'Environment creation has been started'
+                    "log": 'Environment creation has been started'
                 };
                 vm.logMessages.push(currentLog);
 
-                //var logId = getLogsFromTracker(vm.environment2BuildName);
-                getLogById(data.trackerId, true, undefined, data.environmentId);
+                getLogById(data.trackerId, data.environmentId);
                 initScrollbar();
 
                 $rootScope.notificationsUpdate = 'startEnvironmentAdvancedBuild';
@@ -341,7 +337,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             } else {
                 VARS_MODAL_ERROR(SweetAlert, 'Error: ' + error.ERROR);
             }
-            checkLastLog(false);
             $rootScope.notificationsUpdate = 'startEnvironmentAdvancedBuildError';
         });
         vm.environment2BuildName = '';
@@ -356,27 +351,28 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             "time": '',
             "status": 'in-progress',
             "classes": ['fa-spinner', 'fa-pulse'],
-            "text": 'Environment changing has been started'
+            "log": 'Environment modification has been started'
         };
         vm.logMessages.push(currentLog);
 
         var quotaContainers = [];
 
         for (var key in vm.editingEnv.changingContainers) {
-            quotaContainers.push({ "key" : key, "value" : vm.editingEnv.changingContainers[key] });
+            quotaContainers.push({"key": key, "value": vm.editingEnv.changingContainers[key]});
         }
 
-        var conteiners = {
+        var containers = {
             "topology": vm.containers2Build,
             "removedContainers": vm.containers2Remove,
             "environmentId": vm.editingEnv.id,
             "changingContainers": quotaContainers
         };
-        environmentService.modifyEnvironment(conteiners, 'advanced')
+
+        environmentService.modifyEnvironment(containers, 'advanced')
             .success(function (data) {
                 vm.newEnvID = data;
 
-                getLogById(data, true, undefined, conteiners.environmentId);
+                getLogById(data, containers.environmentId);
                 initScrollbar();
                 $scope.$emit('reloadEnvironmentsList');
 
@@ -387,7 +383,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             } else {
                 VARS_MODAL_ERROR(SweetAlert, 'Error: ' + error.ERROR);
             }
-            checkLastLog(false);
             $scope.$emit('reloadEnvironmentsList');
 
             $rootScope.notificationsUpdate = 'modifyEnvironmentAdvError';
@@ -405,16 +400,17 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     function addResource2Build(currentResource, peerId, index) {
 
         var isManagement = false;
-
-        for (var i in vm.currentResourceHosts)
-        {
-            var rh  = vm.currentResourceHosts[i];
-
-            if(rh.id == currentResource && rh.isManagement){
-
-               isManagement = true;
-
-               break;
+        var peerName = '';
+        for (var i in vm.peerIds) {
+            var peer = vm.peerIds[i];
+            if (peer.id == peerId) {
+                peerName = peer.name;
+                for (var j in peer.resourceHosts) {
+                    var rh = peer.resourceHosts[j];
+                    if (rh.id == currentResource && rh.isManagement) {
+                        isManagement = true;
+                    }
+                }
             }
         }
 
@@ -447,8 +443,8 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             children: 0,
             grid: [],
             gridSize: {size: 2},
-            'resourceHostName': 'RH' + (index + 1) + (isManagement ? " [MH]" : ""),
-            'peerName': 'Peer ' + (vm.currentPeerIndex + 1),
+            'resourceHostName': 'RH ' + (currentResource.substr(vm.rhId.length - 3)) + (isManagement ? " [MH]" : ""),
+            'peerName': /*'Peer ' + */peerName/*peerId.substr(peerId.length - 3)*/,
             'addClass': 'b-resource-host_last'
         });
 
@@ -501,7 +497,7 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     //custom shapes
     joint.shapes.tm = {};
 
-    //simple creatiom templates
+    //simple creation templates
     joint.shapes.tm.toolElement = joint.shapes.basic.Generic.extend({
 
         toolMarkup: [
@@ -577,7 +573,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                     rx: 50,
                     ry: 50
                 },
-                //'rect.b-magnet': {fill: '#04346E', width: 10, height: 10, rx: 50, ry: 50, magnet: true, transform: 'translate(16,28)'},
                 'rect.b-magnet': {
                     fill: '#04346E',
                     width: 10,
@@ -596,6 +591,7 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
     joint.shapes.tm.ToolElementView = joint.dia.ElementView.extend({
         initialize: function () {
             joint.dia.ElementView.prototype.initialize.apply(this, arguments);
+            this.isMovingContainer = false;
         },
         render: function () {
             joint.dia.ElementView.prototype.render.apply(this, arguments);
@@ -637,13 +633,20 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                 case 'b-container-plus-icon':
                     currentTemplate = this.model;
                     $('#js-container-name').val(currentTemplate.get('containerName')).trigger('change');
-					if(currentTemplate.get('edited') == true) {
-						$('#js-container-name').prop('disabled', true);
-					} else {
-						$('#js-container-name').prop('disabled', false);
-					}
-                    $('#js-container-size').val(currentTemplate.get('quotaSize'));
-                    containerSettingMenu.find('.header').text('Settings ' + this.model.get('templateName'));
+                    if (currentTemplate.get('edited') == true) {
+                        $('#js-container-name').prop('disabled', true);
+                    } else {
+                        $('#js-container-name').prop('disabled', false);
+                    }
+                    $('#js-container-size').val(currentTemplate.get('quotaSize')).trigger('change');
+
+                    if (currentTemplate.get('quotaSize') == 'CUSTOM') {
+                        $('#js-quotasize-custom-cpu').val(currentTemplate.get('cpuQuota')).trigger('change');
+                        $('#js-quotasize-custom-ram').val(currentTemplate.get('ramQuota')).trigger('change');
+                        $('#js-quotasize-custom-disk').val(currentTemplate.get('diskQuota')).trigger('change');
+                    }
+
+                    containerSettingMenu.find('.header').html('Settings for <b>' + this.model.get('templateName') + '</b> container');
                     var elementPos = this.model.get('position');
                     containerSettingMenu.css({
                         'left': (elementPos.x - 2) + 'px',
@@ -653,16 +656,35 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                     return;
                     break;
                 case 'rotatable':
-                    /*vm.currentTemplate = this.model;
-                     ngDialog.open({
-                     template: 'subutai-app/environment/partials/popups/templateSettingsAdvanced.html',
-                     scope: $scope
-                     });*/
                     return;
                     break;
                 default:
             }
             joint.dia.CellView.prototype.pointerclick.apply(this, arguments);
+        },
+        pointermove: function (evt, x, y) {
+            if(this.model.get('edited') == true) {
+                // disable moving for existing environment's containers
+                return false;
+            } else {
+                this.isMovingContainer = true;
+                joint.dia.ElementView.prototype.pointermove.apply(this, arguments);
+            }
+        },
+        pointerup: function (evt, x, y) {
+            joint.dia.ElementView.prototype.pointerup.apply(this, arguments);
+
+            if ( this.isMovingContainer == true ) {
+                var models = graph.findModelsFromPoint({x: evt.offsetX, y: evt.offsetY});
+
+                if ( models != undefined && models.length > 0 ) {
+                    this.model.set('parentHostId', models[0].get('hostId'));
+                    this.model.set('parentPeerId', models[0].get('peerId'));
+                    this.model.get('rh')['model'] = models[0].id;
+                }
+            }
+
+            this.isMovingContainer = false;
         }
     });
     joint.shapes.tm.devElementView = joint.shapes.tm.ToolElementView;
@@ -701,7 +723,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
         template: [
             '<div class="b-resource-host">',
             '<div class="b-peer-title"></div>',
-            //'<button class="b-peer-delete js-delete-peer"></button>',
             '<div class="b-resource-host__inner">',
             '<div class="b-recouce-host-title"></div>',
             '<div class="b-resource-host__containers">',
@@ -769,7 +790,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             var parentPeerId = this.model.get('peerId');
             var rhKeys = Object.keys(PEER_MAP[parentPeerId].rh);
             var hostIndex = rhKeys.indexOf(this.model.get('hostId'));
-            //var swapFrom = rhKeys.slice(hostIndex, -1);
 
             var emptyPlace = this.model.get('size').height - 8;
             delete PEER_MAP[parentPeerId].rh[this.model.get('hostId')];
@@ -872,7 +892,8 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
         vm.buildCompleted = false;
         vm.newEnvID = [];
         vm.buildStep = 'confirm';
-
+        clearTimeout(timeoutId);
+        vm.logMessages = [];
         vm.env2Build = {};
         vm.containers2Build = [];
         vm.env2Remove = {};
@@ -900,9 +921,9 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
             scope: $scope,
             className: 'b-build-environment-info',
             preCloseCallback: function (value) {
-				if(vm.buildCompleted) {
-					resetPlugin();
-				}
+                if (vm.buildCompleted) {
+                    resetPlugin();
+                }
                 vm.buildCompleted = false;
             }
         });
@@ -910,41 +931,46 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
 
     function editEnvironment(environment) {
 
-        if (environment.dataSource == "hub") {
-            SweetAlert.swal("Feature coming soon...", "This environment is created on Hub. Please use Hub to manage it.", "success");
+        if (environment.dataSource != "subutai") {
+            SweetAlert.swal("Feature coming soon...", "This environment is created on Bazaar. Please use Bazaar to manage it.", "success");
 
             return;
         }
-
-		clearWorkspace();
+        vm.logMessages = [];
+        clearWorkspace();
         vm.isEditing = true;
-		vm.editingEnv = environment;
+        vm.editingEnv = environment;
         vm.editingEnv.changingContainers = [];
-		vm.environment2BuildName = environment.name;
-		vm.excludedContainers = [];
-		vm.currentPeerIndex = 0;
-		for(var i = 0; i < environment.containers.length; i++) {
-			var container = environment.containers[i];
+        vm.environment2BuildName = environment.name;
+        vm.excludedContainers = [];
+        vm.currentPeerIndex = 0;
+        for (var i = 0; i < environment.containers.length; i++) {
+            var container = environment.containers[i];
 
-			if( container.containerName.match(/(\d+)(?!.*\d)/g) != null )
-			{
-				if( containerCounter < parseInt( container.containerName.match(/(\d+)(?!.*\d)/g) ) + 1 )
-				{
-					containerCounter = parseInt( container.containerName.match(/(\d+)(?!.*\d)/g) ) + 1;
-				}
-			}
+            if (container.containerName.match(/(\d+)(?!.*\d)/g) != null) {
+                if (containerCounter < parseInt(container.containerName.match(/(\d+)(?!.*\d)/g)) + 1) {
+                    containerCounter = parseInt(container.containerName.match(/(\d+)(?!.*\d)/g)) + 1;
+                }
+            }
 
-			var resourceHostItemId = addResource2Build(container.hostId, container.peerId, i);
-			var resourceHost = graph.getCell(resourceHostItemId);
-			vm.currentPeerIndex++;
-			var img = 'assets/templates/' + container.templateName + '.jpg';
-			if(!imageExists(img)) {
-				img = 'assets/templates/no-image.jpg';
-			}
-			addContainerToHost(resourceHost, container.templateName, img, container.type, container.id, container.hostname);
-		}
-		filterPluginsList();
-	}
+            if (container.hostname.match(/(\d+)(?!.*\d)/g) != null) {
+                if (containerCounter < parseInt(container.hostname.match(/(\d+)(?!.*\d)/g)) + 1) {
+                    containerCounter = parseInt(container.hostname.match(/(\d+)(?!.*\d)/g)) + 1;
+                }
+            }
+
+            vm.rhId = container.rhId;
+            var resourceHostItemId = addResource2Build(container.rhId, container.peerId, i);
+            var resourceHost = graph.getCell(resourceHostItemId);
+            vm.currentPeerIndex++;
+            var img = 'assets/templates/' + container.templateName + '.jpg';
+            if (!imageExists(img)) {
+                img = 'assets/templates/no-image.jpg';
+            }
+            addContainerToHost(resourceHost, container.templateName, img, container.type, container.quota, container.id, container.hostname, container.templateId);
+        }
+        filterPluginsList();
+    }
 
     vm.plugins = [];
     vm.filteredPlugins = {};
@@ -1032,7 +1058,6 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                             if (currentTemplate == template.toLowerCase()) {
                                 alreadyONWorckspace = true;
                                 templatesCounter++;
-                                //break;
                             }
                         }
                         if (!alreadyONWorckspace || templatesCounter == i) {
@@ -1040,7 +1065,9 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                             if (!imageExists(img)) {
                                 img = 'assets/templates/no-image.jpg';
                             }
-                            addContainerToHost(resourceHost, template, img, vm.selectedPlugin.size);
+                            environmentService.getVerifiedTemplate(template.toLowerCase()).success(function (verifiedTemplate) {
+                                addContainerToHost(resourceHost, template, img, vm.selectedPlugin.size, null, null, null, verifiedTemplate.id);
+                            });
                         }
 
                     } else {
@@ -1048,7 +1075,9 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                         if (!imageExists(img)) {
                             img = 'assets/templates/no-image.jpg';
                         }
-                        addContainerToHost(resourceHost, template, img, vm.selectedPlugin.size);
+                        environmentService.getVerifiedTemplate(template.toLowerCase()).success(function (verifiedTemplate) {
+                            addContainerToHost(resourceHost, template, img, vm.selectedPlugin.size, null, null, null, verifiedTemplate.id);
+                        });
                     }
 
                 }
@@ -1074,8 +1103,17 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
                 if (getRemoved) {
                     result.containersList.push(currentElement.get('containerId'));
                 } else {
+                    var isCustom = currentElement.get('quotaSize') == 'CUSTOM';
+
                     var container2Build = {
-                        "type": currentElement.get('quotaSize'),
+
+                        "quota": isCustom ? {
+                                "containerSize": currentElement.get('quotaSize'),
+                                "cpuQuota": currentElement.get("cpuQuota"),
+                                "ramQuota": currentElement.get("ramQuota") + 'MiB',
+                                "diskQuota": currentElement.get("diskQuota") + 'GiB',
+                            } : {"containerSize": currentElement.get('quotaSize')},
+
                         "templateName": currentElement.get('templateName'),
                         "templateId": currentElement.get('templateId'),
                         "name": currentElement.get('containerName'),
@@ -1125,36 +1163,49 @@ function AdvancedEnvironmentCtrl($scope, $rootScope, environmentService, tracker
         vm.editingEnv = false;
         graph.resetCells();
         $('.b-resource-host').remove();
-		filterPluginsList();
+        filterPluginsList();
     }
 
-    function addSettingsToTemplate(settings) {
-        currentTemplate.set('quotaSize', settings.quotaSize);
-        currentTemplate.attr('rect.b-magnet/fill', vm.colors[settings.quotaSize]);
-        currentTemplate.set('containerName', settings.containerName);
-        //ngDialog.closeAll();
+    function addSettingsToTemplate(templateSettings, sizeDetails) {
+        var isCustom = templateSettings.quotaSize == 'CUSTOM';
+
+        currentTemplate.set('quotaSize', templateSettings.quotaSize);
+
+        if (isCustom) {
+            currentTemplate.set('cpuQuota', templateSettings.cpuQuota);
+            currentTemplate.set('ramQuota', templateSettings.ramQuota);
+            currentTemplate.set('diskQuota', templateSettings.diskQuota);
+        }
+
+        currentTemplate.attr('title/text', templateSettings.containerName + ' (' + currentTemplate.get('templateName') +  ') ' + templateSettings.quotaSize);
+        currentTemplate.attr('rect.b-magnet/fill', vm.colors[templateSettings.quotaSize]);
+        currentTemplate.set('containerName', templateSettings.containerName);
+
         containerSettingMenu.hide();
 
-        if( vm.isEditing )
-        {
+        if (vm.isEditing) {
             var id = currentTemplate.attributes.containerId;
 
-            var res = $.grep( vm.editingEnv.containers, function( e, i ) {
+            var res = $.grep(vm.editingEnv.containers, function (e, i) {
                 return e.id == id;
             });
 
-            if( res[0] )
-            {
+            if (res[0]) {
                 res = res[0];
 
-                if( res.type == settings.quotaSize && vm.editingEnv.changingContainers[id] )
-                {
+                if (res.type == templateSettings.quotaSize && vm.editingEnv.changingContainers[id] && !isCustom) {
                     delete vm.editingEnv.changingContainers[id];
                 }
 
-                if( res.type != settings.quotaSize )
-                {
-                    vm.editingEnv.changingContainers[id] = settings.quotaSize;
+                if (res.type != templateSettings.quotaSize || isCustom) {
+
+                    vm.editingEnv.changingContainers[id] = {"containerSize": templateSettings.quotaSize};
+
+                    if (isCustom) {
+                        vm.editingEnv.changingContainers[id].cpuQuota = templateSettings.cpuQuota;
+                        vm.editingEnv.changingContainers[id].ramQuota = templateSettings.ramQuota;
+                        vm.editingEnv.changingContainers[id].diskQuota = templateSettings.diskQuota;
+                    }
                 }
             }
         }
@@ -1206,7 +1257,6 @@ function movePeer(peerId, posMod, counter) {
         var x = posMod;
         if (counter && counter > 0) {
             x = counter * posMod;
-            counter++;
         }
 
         PEER_MAP[peerKeys[i]].position--;
@@ -1276,6 +1326,34 @@ function checkResourceHost(model) {
 
 }
 
+var lastUsedRhIdx = -1;
+function clickIt(event){
+
+    var rhs = [];
+    for(var peerId in PEER_MAP){
+        for(var rhId in PEER_MAP[peerId].rh){
+            rhs.push(graph.getCell(PEER_MAP[peerId].rh[rhId]));
+        }
+    }
+
+    if(rhs.length == 0) return;
+
+    var theRH;
+    if(rhs.length > lastUsedRhIdx + 1){
+        lastUsedRhIdx++;
+    }else{
+        lastUsedRhIdx = 0;
+    }
+    theRH = rhs[lastUsedRhIdx];
+
+    var containerImage = $(event.target).parent().find('img');
+    var template = $(event.target).data('template');
+    var templateId = $(event.target).data('template-id');
+    var img = containerImage.attr('src');
+
+    addContainerToHost(theRH, template, img, null, null, null, null, templateId);
+}
+
 function startDrag(event) {
 
     var containerImage = $(event.target).parent().find('img');
@@ -1311,7 +1389,6 @@ function endtDrag(event) {
 
 var containerCounter = 1;
 function drop(event) {
-    //event.preventDefault();
 
     var template = event.dataTransfer.getData("template");
     var templateId = event.dataTransfer.getData("templateId");
@@ -1324,64 +1401,67 @@ function drop(event) {
 
     for (var i = 0; i < models.length; i++) {
         if (models[i].attributes.hostId !== undefined) {
-            addContainerToHost(models[i], template, img, null, null, null, templateId);
+            addContainerToHost(models[i], template.toLowerCase(), img, null, null, null, null, templateId);
         }
     }
 }
 
-function addContainerToHost(model, template, img, size, containerId, name, templateId) {
-	if(size === undefined || size === null) {
-		size = 'SMALL';
-		if(template == 'appscale') {
-			size = 'HUGE';
-		}
-	}
-	var edited = false;
-	if(containerId == undefined || containerId == null){
-		containerId = false;
-	} else {
-		edited = true;
-	}
-	checkResourceHost(model);
-	var rPos = model.attributes.position;
-	var gPos = placeRhSimple( model );
+function addContainerToHost(model, template, img, size, quota, containerId, name, templateId) {
+    if (size === undefined || size === null) {
+        size = 'TINY';
+        if (template == 'appscale') {
+            size = 'HUGE';
+        }
+    }
+    var edited = false;
+    if (containerId == undefined || containerId == null) {
+        containerId = false;
+    } else {
+        edited = true;
+    }
+    checkResourceHost(model);
+    var rPos = model.attributes.position;
+    var gPos = placeRhSimple(model);
 
     var x = (rPos.x + gPos.x * GRID_SIZE + GRID_SPACING) + 23;
     var y = (rPos.y + gPos.y * GRID_SIZE + GRID_SPACING) + 49;
 
-	if(templateId == undefined || templateId == null) {
-		var templateId = getTemplateIdByName(template, templatesList);	
-	}
+    if (templateId == undefined || templateId == null) {
+        var templateId = getTemplateIdByName(template, templatesList);
+    }
 
-	var containerName = '';
-	if(name == undefined || name == null) {
-		containerName = 'Container ' + (containerCounter++).toString();
-	} else {
-		var containerNameArray = name.split('-');
-		containerName = containerNameArray[0];
-	}
+    var containerName = '';
+    if (name == undefined || name == null) {
+        containerName = 'Container ' + (containerCounter++).toString();
+    } else {
+        containerName = name;
+    }
 
-	var devElement = new joint.shapes.tm.devElement({
-		position: { x: x, y: y },
-		edited: edited,
-		templateName: template,
-		templateId: templateId,
-		parentPeerId: model.get('peerId'),
-		parentHostId: model.get('hostId'),
-		quotaSize: size,
-		containerId: containerId,
-		containerName: containerName,
-		attrs: {
-			image: { 'xlink:href': img },
-			'rect.b-magnet': {fill: quotaColors[size]},
-			title: {text: containerName + " ('" + template + "') " + size}
-		},
-		rh: {
-			model: model.id,
-			x: gPos.x,
-			y: gPos.y
-		}
-	});
+    var devElement = new joint.shapes.tm.devElement({
+        position: {x: x, y: y},
+        edited: edited,
+        templateName: template,
+        templateId: templateId,
+        parentPeerId: model.get('peerId'),
+        parentHostId: model.get('hostId'),
+        quotaSize: size,
+        cpuQuota: quota === null ? 33 : quota.cpu,
+        ramQuota: quota === null ? 2048 : quota.ram,
+        diskQuota: quota === null ? 10 : quota.disk,
+
+        containerId: containerId,
+        containerName: containerName,
+        attrs: {
+            image: {'xlink:href': img},
+            'rect.b-magnet': {fill: quotaColors[size]},
+            title: {text: containerName + " ('" + template + "') " + size}
+        },
+        rh: {
+            model: model.id,
+            x: gPos.x,
+            y: gPos.y
+        }
+    });
 
     graph.addCell(devElement);
     model.embed(devElement);
@@ -1390,7 +1470,6 @@ function addContainerToHost(model, template, img, size, containerId, name, templ
     angular.element(document.getElementById('js-environment-creation')).scope().filterPluginsList();
 }
 
-function shortenIdName( name, factor )
-{
+function shortenIdName(name, factor) {
     return name.substring(0, factor) + '..' + name.substring(name.length - factor, name.length);
 }

@@ -21,6 +21,10 @@ public class ResourceHostInfoModel extends HostInfoModel implements ResourceHost
     private InstanceType instance;
     @JsonIgnore
     private Set<Alert> alert = Sets.newHashSet();
+    @JsonIgnore
+    private String address;
+    @JsonIgnore
+    private long dateCreated = System.currentTimeMillis();
 
 
     public ResourceHostInfoModel( final ResourceHostInfo resourceHostInfo )
@@ -32,6 +36,26 @@ public class ResourceHostInfoModel extends HostInfoModel implements ResourceHost
         {
             containers.add( new ContainerHostInfoModel( containerHostInfo ) );
         }
+        this.address = resourceHostInfo.getAddress();
+    }
+
+
+    public long getDateCreated()
+    {
+        return dateCreated;
+    }
+
+
+    public void setDateCreated( final long dateCreated )
+    {
+        this.dateCreated = dateCreated;
+    }
+
+
+    @Override
+    public String getAddress()
+    {
+        return address;
     }
 
 
@@ -83,8 +107,7 @@ public class ResourceHostInfoModel extends HostInfoModel implements ResourceHost
     public String toString()
     {
         return MoreObjects.toStringHelper( this ).add( "id", id ).add( "hostname", hostname )
-                          .add( "instance", instance ).add( "interfaces", getHostInterfaces() )
-                          .add( "containers", containers ).toString();
+                          .add( "instance", instance ).add( "containers", containers ).toString();
     }
 
 

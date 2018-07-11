@@ -4,12 +4,17 @@ package io.subutai.common.peer;
 import java.util.List;
 import java.util.Set;
 
+import io.subutai.common.environment.PeerTemplatesUploadProgress;
 import io.subutai.common.host.ContainerHostInfo;
+import io.subutai.common.host.ResourceHostInfo;
 import io.subutai.common.network.ProxyLoadBalanceStrategy;
 import io.subutai.common.network.ReservedNetworkResources;
 import io.subutai.common.network.SshTunnel;
+import io.subutai.common.protocol.P2pIps;
 import io.subutai.common.protocol.Template;
 import io.subutai.common.util.HostUtil;
+import io.subutai.hub.share.quota.Quota;
+import io.subutai.hub.share.resource.ContainerResourceType;
 import io.subutai.hub.share.resource.PeerResources;
 
 
@@ -96,6 +101,13 @@ public interface LocalPeer extends Peer
      */
     ContainerHost getContainerHostById( String hostId ) throws HostNotFoundException;
 
+    /**
+     * Returns implementation of ContainerHost interface.
+     *
+     * @param hostIp IP of the container (eth0 interface)
+     */
+    ContainerHost getContainerHostByIp( final String hostIp ) throws HostNotFoundException;
+
 
     /**
      * Returns instance of management host
@@ -171,7 +183,7 @@ public interface LocalPeer extends Peer
 
     void cancelAllTasks();
 
-    void exchangeKeys( ResourceHost resourceHost, String hostname ) throws PeerException;
+    void registerManagementContainer( ResourceHost resourceHost ) throws PeerException;
 
     void setPeerInfo( PeerInfo peerInfo );
 
@@ -196,5 +208,26 @@ public interface LocalPeer extends Peer
     Template getTemplateById( String templateId ) throws PeerException;
 
     boolean destroyNotRegisteredContainer( String containerId ) throws PeerException;
+
+    //deletes tunnels to the given p2p ips from local RHs
+    void deleteTunnels( P2pIps p2pIps, EnvironmentId environmentId ) throws PeerException;
+
+    Quota getQuota( ContainerId containerId, ContainerResourceType containerResourceType ) throws PeerException;
+
+    void setRhHostname( String rhId, String hostname ) throws PeerException;
+
+    State getState();
+
+    enum State
+    {
+        LOADING, FAILED, READY
+    }
+
+    void registerResourceHost( ResourceHostInfo resourceHostInfo );
+
+    PeerTemplatesUploadProgress getTemplateUploadProgress( final String templateName ) throws PeerException;
+
+    void exportTemplate( ContainerId containerId, String templateName, String version,
+                                     boolean isPrivateTemplate, String token ) throws PeerException;
 }
 

@@ -10,23 +10,36 @@ import io.subutai.common.settings.Common;
 
 public class LocalPeerCommands
 {
-    public RequestBuilder getExchangeKeyCommand( String containerName, String token )
+    public RequestBuilder getRegisterManagementContainerCommand( String token )
     {
-        return new RequestBuilder( String.format( "subutai import %s -t %s", containerName, token ) );
+        return new RequestBuilder( String.format( "subutai import %s -t %s", Common.MANAGEMENT_HOSTNAME, token ) );
     }
 
 
     protected RequestBuilder getChangeHostnameInEtcHostsCommand( String oldHostname, String newHostname )
     {
         return new RequestBuilder(
-                String.format( "sed -i 's/%1$s/%2$s/g' %3$s", oldHostname, newHostname, Common.ETC_HOSTS_FILE ) );
+                String.format( "sed -i 's/\\b%1$s\\b/%2$s/g' %4$s && sed -i 's/\\b%1$s.%3$s\\b/%2$s.%3$s/g' %4$s",
+                        oldHostname, newHostname, Common.DEFAULT_DOMAIN_NAME, Common.ETC_HOSTS_FILE ) );
+    }
+
+
+    protected RequestBuilder getChangeHostnameInSshPubKeyCommand( String oldHostname, String newHostname,
+                                                                  SshEncryptionType sshEncryptionType )
+    {
+        String sshPubKeyFile = String.format( "%1$s/id_%2$s.pub", Common.CONTAINER_SSH_FOLDER,
+                sshEncryptionType.name().toLowerCase() );
+
+        return new RequestBuilder(
+                String.format( "chmod 700 %3$s && sed -i 's/\\b%1$s\\b/%2$s/g' %3$s && chmod 644 %3$s", oldHostname,
+                        newHostname, sshPubKeyFile ) );
     }
 
 
     protected RequestBuilder getChangeHostnameInAuthorizedKeysCommand( String oldHostname, String newHostname )
     {
         return new RequestBuilder(
-                String.format( "chmod 700 %3$s && sed -i 's/%1$s/%2$s/g' %3$s && chmod 644 %3$s", oldHostname,
+                String.format( "chmod 700 %3$s && sed -i 's/\\b%1$s\\b/%2$s/g' %3$s && chmod 644 %3$s", oldHostname,
                         newHostname, Common.CONTAINER_SSH_FILE ) );
     }
 
@@ -69,10 +82,10 @@ public class LocalPeerCommands
     protected RequestBuilder getReadOrCreateSSHCommand( SshEncryptionType encryptionType )
     {
         return new RequestBuilder( String.format(
-                "if [ -f %1$s/id_%2$s.pub ]; " + "then cat %1$s/id_%2$s.pub ;" + "else rm -rf %1$s && "
+                "if [ -f %1$s/id_%2$s.pub ]; " + "then cat %1$s/id_%2$s.pub ;" + "else rm -rf %1$s ; "
                         + "mkdir -p %1$s && " + "chmod 700 %1$s && " + "ssh-keygen -t %2$s -P '' -f %1$s/id_%2$s -q && "
                         + "cat %1$s/id_%2$s.pub; fi", Common.CONTAINER_SSH_FOLDER,
-                encryptionType.name().toLowerCase() ) );
+                encryptionType.name().toLowerCase() ) ).withTimeout( 60 );
     }
 
 

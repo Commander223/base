@@ -6,18 +6,21 @@ import java.util.List;
 
 public interface HubAdapter
 {
-    boolean isRegistered();
     //
     // Environments
     //
 
     String getUserEnvironmentsForPeer();
 
+    String getAllEnvironmentsForPeer();
+
+    String getDeletedEnvironmentsForPeer();
+
     void destroyContainer( String envId, String containerId );
 
     void uploadEnvironment( String json );
 
-    void uploadPeerOwnerEnvironment( String json );
+    boolean uploadPeerOwnerEnvironment( String json );
 
     void removeEnvironment( String envId );
 
@@ -37,5 +40,6 @@ public interface HubAdapter
 
     boolean deletePluginData( String pluginKey, String key );
 
-    String getAllEnvironmentsForPeer();
+    void notifyContainerDiskUsageExcess( String peerId, String envId, String contId, long diskUsage,
+                                         boolean containerWasStopped );
 }

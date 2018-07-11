@@ -1,30 +1,35 @@
 package io.subutai.common.network;
 
 
-import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Sets;
 
 import io.subutai.common.settings.Common;
-import io.subutai.common.util.CollectionUtil;
 import io.subutai.common.util.IPUtil;
 import io.subutai.common.util.NumUtil;
 
 
 public class UsedNetworkResources
 {
+    private static final long VLAN_CACHING_INTERVAL_SEC = 60;
+    private static Cache<Integer, Boolean> cachedVlans = CacheBuilder.newBuilder().
+            expireAfterWrite( VLAN_CACHING_INTERVAL_SEC, TimeUnit.SECONDS ).build();
+
     @JsonProperty( "vnis" )
-    Set<Long> vnis = Sets.newConcurrentHashSet();
+    private Set<Long> vnis = Sets.newConcurrentHashSet();
     @JsonProperty( "p2pSubnets" )
-    Set<String> p2pSubnets = Sets.newConcurrentHashSet();
+    private Set<String> p2pSubnets = Sets.newConcurrentHashSet();
     @JsonProperty( "containerSubnets" )
-    Set<String> containerSubnets = Sets.newConcurrentHashSet();
+    private Set<String> containerSubnets = Sets.newConcurrentHashSet();
     @JsonProperty( "vlans" )
-    Set<Integer> vlans = Sets.newConcurrentHashSet();
+    private Set<Integer> vlans = Sets.newConcurrentHashSet();
 
 
     public UsedNetworkResources( @JsonProperty( "vnis" ) final Set<Long> vnis,
@@ -152,20 +157,28 @@ public class UsedNetworkResources
     }
 
 
-    public int calculateFreeVlan()
+    public synchronized int calculateFreeVlan()
     {
-        if ( vlans.isEmpty() )
+
+        for ( Integer nextVlan = Common.MIN_VLAN_ID; nextVlan <= Common.MAX_VLAN_ID; nextVlan++ )
         {
-            return Common.MIN_VLAN_ID;
-        }
+            //check in reserved vlans
+            if ( vlans.contains( nextVlan ) )
+            {
+                continue;
+            }
 
-        List<Integer> sortedVlans = CollectionUtil.asSortedList( vlans );
+            //check in cached vlans
+            if ( cachedVlans.getIfPresent( nextVlan ) != null )
+            {
+                continue;
+            }
 
-        int maxUsedVlan = sortedVlans.get( sortedVlans.size() - 1 );
+            //cache vlan to make it "look" reserved for parallel reservation attempts
+            //when reserved vlans don't contain it yet
+            cachedVlans.put( nextVlan, true );
 
-        if ( maxUsedVlan + 1 <= Common.MAX_VLAN_ID )
-        {
-            return maxUsedVlan + 1;
+            return nextVlan;
         }
 
         return -1;

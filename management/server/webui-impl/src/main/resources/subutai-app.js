@@ -21,19 +21,22 @@ var app = angular.module('subutai-app', [
 
     .controller('AccountCtrl', AccountCtrl)
     .factory('identitySrv', identitySrv)
+    .factory('templateSrv', templateSrv)
 
     .factory('trackerSrv', trackerSrv)
 
     .run(startup);
 
-CurrentUserCtrl.$inject = ['$location', '$scope', '$rootScope', '$http', 'SweetAlert', 'ngDialog', 'trackerSrv'];
+CurrentUserCtrl.$inject = ['$location', '$scope', '$rootScope', '$http', 'SweetAlert', 'ngDialog', 'trackerSrv', 'identitySrv'];
 routesConf.$inject = ['$httpProvider', '$stateProvider', '$urlRouterProvider', '$ocLazyLoadProvider'];
 startup.$inject = ['$rootScope', '$state', '$location', '$http', 'SweetAlert', 'ngDialog'];
 
-function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDialog, trackerSrv) {
+function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDialog, trackerSrv, identitySrv) {
+
     var vm = this;
     vm.currentUser = localStorage.getItem('currentUser');
     vm.hubStatus = false;
+    vm.online = false;
     vm.userId = "";
     vm.userEmail = "";
     vm.notifications = [];
@@ -47,6 +50,25 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
     vm.hubRegisterError = false;
     vm.isRegistrationFormVisible = false;
     vm.peerNameValue = false;
+
+    function updateHubIp() {
+        $http.get(SERVER_URL + 'rest/v1/system/hub_ip', {
+            withCredentials: true,
+            headers: {'Content-Type': 'application/json'}
+        }).success(function (data) {
+            vm.hubIp = data;
+            localStorage.setItem("hubIp", data);
+        }).error(function (error) {
+            if(!$.trim(vm.hubIp)){
+                vm.hubIp = 'bazaar.subutai.io';
+                localStorage.setItem("hubIp", vm.hubIp);
+            }
+        });
+    }
+
+    updateHubIp();
+
+    setInterval(updateHubIp, 30000);
 
     vm.getRegistrationFormVisibilityStatus = function () {
         return vm.isRegistrationFormVisible;
@@ -91,6 +113,7 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
         }).success(function (data) {
 
             vm.hubStatus = data.isRegisteredToHub;
+            vm.online = data.isHubReachable;
             vm.userId = data.ownerId;
             vm.userEmail = data.currentUserEmail;
 
@@ -118,11 +141,17 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
         checkIfRegistered();
     }, 120000);
 
+    $scope.getHubStatusIcon = function(){
+        return vm.hubStatus ?
+          ( vm.online ? 'b-hub-status_regged' : 'b-hub-status_offline' )
+          : 'b-hub-status_unregged' ;
+    }
 
     vm.hub = {
         login: "",
         password: "",
         peerName: "",
+        peerScope: "Public"
     };
 
 
@@ -148,7 +177,8 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
     function hubRegister() {
         vm.hubRegisterError = false;
         hubPopupLoadScreen(true);
-        var postData = 'hubIp=hub.subut.ai&email=' + vm.hub.login + '&peerName=' + vm.hub.peerName + '&password=' + encodeURIComponent(vm.hub.password);
+
+        var postData = 'email=' + vm.hub.login + '&peerName=' + vm.hub.peerName + '&password=' + encodeURIComponent(vm.hub.password) + '&peerScope=' + vm.hub.peerScope;
         $http.post(SERVER_URL + 'rest/v1/hub/register', postData, {
             withCredentials: true,
             headers: {'Content-Type': 'application/x-www-form-urlencoded'}
@@ -157,17 +187,7 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
 
                 checkIfRegistered(true);
 
-                $http.post(SERVER_URL + 'rest/v1/hub/send-heartbeat?hubIp=hub.subut.ai', {
-                    withCredentials: true,
-                    headers: {'Content-Type': 'application/x-www-form-urlencoded'}
-                })
-                    .success(function () {
-                    }).error(function (error) {
-                    console.log('hub/register error: ', error);
-                    vm.hubRegisterError = error;
-                });
-
-                $http.post(SERVER_URL + 'rest/v1/hub/send-rh-configurations?hubIp=hub.subut.ai', {
+                $http.post(SERVER_URL + 'rest/v1/hub/send-heartbeat', {
                     withCredentials: true,
                     headers: {'Content-Type': 'application/x-www-form-urlencoded'}
                 })
@@ -209,17 +229,21 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
             .success(function () {
                 hubPopupLoadScreen();
                 vm.hubStatus = true;
+                vm.online = true;
                 SweetAlert.swal("Success!", "Heartbeat sent successfully.", "success");
             }).error(function (error) {
             hubPopupLoadScreen();
-            SweetAlert.swal("ERROR!", "Error to process heartbeat: " + error.replace(/\\n/g, " "), "error");
+            vm.online = false;
+            SweetAlert.swal("ERROR!", "Error performing heartbeat: " + error.replace(/\\n/g, " "), "error");
         });
     }
 
     function logout() {
+    	//TODO here we can clear cache
         removeCookie('sptoken');
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('isAdmin');
+        localStorage.removeItem('cdnToken');
+        localStorage.removeItem('currentUserToken');
+        sessionStorage.removeItem('notifications');
         $location.path('login');
     }
 
@@ -261,13 +285,23 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
         vm.currentLogTitle = '';
 
         if (vm.notificationsLogs[logId].log.length > 0) {
-            var logsArray = vm.notificationsLogs[logId].log.split(/(?:\r\n|\r|\n)/g);
+            var logsArray = atob(vm.notificationsLogs[logId].log).split("},");
             vm.currentLogTitle = vm.notificationsLogs[logId].description;
+
+            var trim = vm.currentLogTitle.length > 70;
+            if (trim)
+            {
+                vm.currentLogTitle = vm.currentLogTitle.substring(0, 70) + '...';
+            }
+
             var logs = [];
             for (var i = 0; i < logsArray.length; i++) {
-                var currentLog = JSON.parse(logsArray[i].substring(0, logsArray[i].length - 1));
-                currentLog.date = moment(currentLog.date).format('HH:mm:ss');
-                logs.push(currentLog);
+                var logCheck = logsArray[i].replace(/ /g,'');
+                if(logCheck.length > 0) {
+                    var currentLog = JSON.parse(logsArray[i] + "}");
+                    currentLog.date = moment(currentLog.date).format('HH:mm:ss');
+                    logs.push(currentLog);
+                }
             }
             vm.currentLog = logs;
 
@@ -330,28 +364,6 @@ function CurrentUserCtrl($location, $scope, $rootScope, $http, SweetAlert, ngDia
         });
     }
 
-
-    function checkSum() {
-        $http.get(SERVER_URL + "rest/v1/bazaar/products/checksum", {
-            withCredentials: true,
-            headers: {'Content-Type': 'application/json'}
-        }).success(function (data) {
-            if (localStorage.getItem("bazaarMD5") === null) {
-                localStorage.setItem("bazaarMD5", data);
-                bazaarUpdate = true;
-            }
-            else {
-                if (localStorage.getItem("bazaarMD5") !== data) {
-                    ;
-                    localStorage.setItem("bazaarMD5", data);
-                    bazaarUpdate = true;
-                }
-            }
-        });
-    }
-
-    checkSum();
-
 }
 
 
@@ -361,7 +373,7 @@ function SubutaiController($rootScope, $http, $state) {
     vm.activeState = '';
     vm.adminMenus = false;
     vm.isTenantManager = false;
-    vm.peerName = "Subutai Social";
+    vm.peerName = "Subutai";
 
 	$http.get(SERVER_URL + 'rest/ui/identity/is-admin', {
 		withCredentials: true,
@@ -397,16 +409,6 @@ function SubutaiController($rootScope, $http, $state) {
                 }
             });
 
-            /*$http.get(SERVER_URL + "rest/v1/hub/registration_state", {
-                withCredentials: true,
-                headers: {'Content-Type': 'application/json'}
-            }).success(function (data) {
-                if (data.isRegisteredToHub == true) {
-                    vm.peerName = data.peerName + " | Subutai Social";
-                }else{
-                    vm.peerName = "Subutai Social";
-                }
-            });*/
             return;
         }
 
@@ -476,33 +478,6 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
 							files: [
 								'subutai-app/identityUser/identityUser.js',
 								'subutai-app/identityUser/controller.js',
-								'subutai-app/identity/service.js'
-							]
-						}
-					]);
-				}]
-			}
-		})
-		.state('identity-role', {
-			url: '/identity-role',
-			templateUrl: 'subutai-app/identityRole/partials/view.html',
-			data: {
-				bodyClass: '',
-				layout: 'default'
-			},
-			resolve: {
-				security: ['$q', function($q){
-					if(!localStorage.getItem('isAdmin')){
-						return $q.reject("notAdmin");
-					}
-				}],
-				loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-					return $ocLazyLoad.load([
-						{
-							name: 'subutai.identity-role',
-							files: [
-								'subutai-app/identityRole/identityRole.js',
-								'subutai-app/identityRole/controller.js',
 								'subutai-app/identity/service.js'
 							]
 						}
@@ -624,33 +599,6 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
 				}]
 			}
 		})
-		.state('settings-security', {
-			url: '/settings-security',
-			templateUrl: 'subutai-app/settingsSecurity/partials/view.html',
-			data: {
-				bodyClass: '',
-				layout: 'default'
-			},
-			resolve: {
-				security: ['$q', function($q){
-					if(!localStorage.getItem('isAdmin')){
-						return $q.reject("notAdmin");
-					}
-				}],
-				loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-					return $ocLazyLoad.load([
-						{
-							name: 'subutai.settings-security',
-							files: [
-								'subutai-app/settingsSecurity/settingsSecurity.js',
-								'subutai-app/settingsSecurity/controller.js',
-								'subutai-app/settingsSecurity/service.js'
-							]
-						}
-					]);
-				}]
-			}
-		})
 		.state('about', {
 			url: '/about',
 			templateUrl: 'subutai-app/about/partials/view.html',
@@ -674,60 +622,6 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
 							]
 						}
 					])
-				}]
-			}
-		})
-		.state('settings-peer', {
-			url: '/settings-peer',
-			templateUrl: 'subutai-app/settingsPeer/partials/view.html',
-			data: {
-				bodyClass: '',
-				layout: 'default'
-			},
-			resolve: {
-				security: ['$q', function($q){
-					if(!localStorage.getItem('isAdmin')){
-						return $q.reject("notAdmin");
-					}
-				}],
-				loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-					return $ocLazyLoad.load([
-						{
-							name: 'subutai.settings-peer',
-							files: [
-								'subutai-app/settingsPeer/settingsPeer.js',
-								'subutai-app/settingsPeer/controller.js',
-								'subutai-app/settingsPeer/service.js'
-							]
-						}
-					]);
-				}]
-			}
-		})
-		.state('settings-kurjun', {
-			url: '/settings-kurjun',
-			templateUrl: 'subutai-app/settingsKurjun/partials/view.html',
-			data: {
-				bodyClass: '',
-				layout: 'default'
-			},
-			resolve: {
-				security: ['$q', function($q){
-					if(!localStorage.getItem('isAdmin')){
-						return $q.reject("notAdmin");
-					}
-				}],
-				loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-					return $ocLazyLoad.load([
-						{
-							name: 'subutai.settings-kurjun',
-							files: [
-								'subutai-app/settingsKurjun/settingsKurjun.js',
-								'subutai-app/settingsKurjun/controller.js',
-								'subutai-app/settingsKurjun/service.js'
-							]
-						}
-					]);
 				}]
 			}
 		})
@@ -875,30 +769,6 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
                 }]
             }
         })
-        .state('kurjun', {
-            url: '/kurjun',
-            templateUrl: 'subutai-app/kurjun/partials/view.html',
-            data: {
-                bodyClass: '',
-                layout: 'default'
-            },
-            resolve: {
-                loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-                    return $ocLazyLoad.load([
-                        {
-                            name: 'subutai.kurjun',
-                            files: [
-                                'subutai-app/kurjun/kurjun.js',
-                                'subutai-app/kurjun/controller.js',
-                                'subutai-app/kurjun/service.js',
-                                'subutai-app/identity/service.js',
-                                'subutai-app/settingsKurjun/service.js'
-                            ]
-                        }
-                    ]);
-                }]
-            }
-        })
         .state('tracker', {
             url: '/tracker',
             templateUrl: 'subutai-app/tracker/partials/view.html',
@@ -912,31 +782,9 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
                         {
                             name: 'subutai.tracker',
                             files: [
-                                'subutai-app/tracker/tracker.js',
+                                'subutai-app/tracker/trckr.js',
                                 'subutai-app/tracker/controller.js',
                                 'subutai-app/tracker/service.js'
-                            ]
-                        }
-                    ]);
-                }]
-            }
-        })
-        .state('tokens', {
-            url: '/tokens',
-            templateUrl: 'subutai-app/tokens/partials/view.html',
-            data: {
-                bodyClass: '',
-                layout: 'default'
-            },
-            resolve: {
-                loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-                    return $ocLazyLoad.load([
-                        {
-                            name: 'subutai.tokens',
-                            files: [
-                                'subutai-app/tokens/tokens.js',
-                                'subutai-app/tokens/controller.js',
-                                'subutai-app/identity/service.js'
                             ]
                         }
                     ]);
@@ -992,31 +840,6 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
                 }]
             }
         })
-        .state('bazaar', {
-            url: '/bazaar',
-            templateUrl: 'subutai-app/bazaar/partials/view.html',
-            data: {
-                bodyClass: '',
-                layout: 'default'
-            },
-            resolve: {
-                loadPlugin: ['$ocLazyLoad', function ($ocLazyLoad) {
-                    return $ocLazyLoad.load([
-                        {
-                            name: 'subutai.bazaar',
-                            files: [
-                                'subutai-app/bazaar/bazaar.js',
-                                'subutai-app/bazaar/controller.js',
-                                'subutai-app/bazaar/service.js',
-                                'subutai-app/identity/service.js',
-                                'subutai-app/bazaar/partials/css/demo.css',
-                                'subutai-app/bazaar/partials/css/component.css'
-                            ]
-                        }
-                    ]);
-                }]
-            }
-        })
         .state('404', {
             url: '/404',
             templateUrl: 'subutai-app/common/partials/404.html',
@@ -1033,6 +856,7 @@ function routesConf($httpProvider, $stateProvider, $urlRouterProvider, $ocLazyLo
         return {
             'responseError': function (rejection) {
                 if (rejection.status == 401 && $.inArray($location.path(), ['/login']) === -1) {
+                    removeCookie('sptoken');
                     $location.path('/login');
                 }
                 return $q.reject(rejection);
@@ -1143,7 +967,6 @@ var bazaarUpdate = false;
 var hubRegisterStatus = false;
 
 var SERVER_URL = '/';
-var GLOBAL_KURJUN_URL = '';
 
 var STATUS_UNDER_MODIFICATION = 'UNDER_MODIFICATION';
 var VARS_TOOLTIP_TIMEOUT = 1600;

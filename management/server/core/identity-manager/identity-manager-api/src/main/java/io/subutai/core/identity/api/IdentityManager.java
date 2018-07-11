@@ -6,12 +6,18 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 import javax.annotation.security.PermitAll;
+import javax.servlet.http.HttpServletRequest;
+
+import org.apache.cxf.message.Message;
 
 import io.subutai.common.security.exception.SystemSecurityException;
 import io.subutai.common.security.objects.PermissionObject;
 import io.subutai.common.security.objects.PermissionOperation;
 import io.subutai.common.security.objects.PermissionScope;
 import io.subutai.core.identity.api.dao.IdentityDataService;
+import io.subutai.core.identity.api.exception.TokenCreateException;
+import io.subutai.core.identity.api.exception.TokenParseException;
+import io.subutai.core.identity.api.exception.UserExistsException;
 import io.subutai.core.identity.api.model.Permission;
 import io.subutai.core.identity.api.model.Role;
 import io.subutai.core.identity.api.model.Session;
@@ -25,14 +31,34 @@ import io.subutai.core.identity.api.model.UserToken;
  */
 public interface IdentityManager
 {
+    int JWT_TOKEN_EXPIRATION_TIME = 3600;
+    String TOKEN_ISSUER = "Subutai Peer OS";
     String SYSTEM_USERNAME = "internal";
     String ADMIN_USERNAME = "admin";
     String TOKEN_ID = "token";
+
+
     String ADMIN_DEFAULT_PWD = "secret";
 
-    public static final String ENV_MANAGER_ROLE = "Environment-Manager";
-    public static final String TEMPLATE_MANAGER_ROLE = "Template-Manager";
+    String ENV_MANAGER_ROLE = "Environment-Manager";
+    String TEMPLATE_MANAGER_ROLE = "Template-Manager";
+    //    String ENV_OWNER_ROLE = "Environment-Owner";
 
+
+    void init();
+
+    void destroy();
+
+    TokenHelper buildTokenHelper( String token ) throws TokenParseException;
+
+    /**
+     * Token auth login
+     *
+     * @param request HttpServletRequest
+     *
+     * @return Session @see Session
+     */
+    Session login( HttpServletRequest request, Message message );
 
     /* *************************************************
      */
@@ -81,11 +107,16 @@ public interface IdentityManager
 
     /* *************************************************
      */
+    UserToken updateTokenAndSession( long userId );
+
+
+    /* *************************************************
+     */
     @PermitAll
     String updateUserAuthId( User user, String authId ) throws SystemSecurityException;
 
     /* *************************************************
-         */
+     */
     String getEncryptedUserAuthId( User user ) throws SystemSecurityException;
 
 
@@ -160,7 +191,7 @@ public interface IdentityManager
 
 
     /* *************************************************
-      */
+     */
     User getUser( long userId );
 
 
@@ -204,9 +235,10 @@ public interface IdentityManager
 
 
     /* *************************************************
-    */
+     */
     User createUser( String userName, String password, String fullName, String email, int type, int trustLevel,
-                     boolean generateKeyPair, boolean createUserDelegate ) throws SystemSecurityException;
+                     boolean generateKeyPair, boolean createUserDelegate )
+            throws SystemSecurityException, UserExistsException;
 
     User modifyUser( User user, String password ) throws SystemSecurityException;
 
@@ -237,7 +269,7 @@ public interface IdentityManager
             throws SystemSecurityException;
 
     /* *************************************************
-         */
+     */
     boolean changeUserPassword( long userId, String oldPassword, String newPassword ) throws SystemSecurityException;
 
 
@@ -246,8 +278,18 @@ public interface IdentityManager
     @PermitAll
     boolean changeUserPassword( User user, String oldPassword, String newPassword ) throws SystemSecurityException;
 
+    void resetPassword( String username, String newPassword, String sign ) throws SystemSecurityException;
+
+    /**
+     * Issues a token to be signed and passed to
+     * {@link IdentityManager#resetPassword(java.lang.String username, * java.lang.String newPassword, java.lang.String sign)}. TTL of token is 30 seconds
+     *
+     * @return token to be signed by user PGP key
+     */
+    String getSignToken();
+
     /* *************************************************
-         */
+     */
     void updateUser( User user );
 
     /*
@@ -272,6 +314,10 @@ public interface IdentityManager
      */
     boolean isTenantManager();
 
+    /**
+     * Returns true if user is internal system user, false otherwise
+     */
+    boolean isSystemUser();
 
     /**
      * Returns true if user has admin role, false otherwise
@@ -290,6 +336,10 @@ public interface IdentityManager
     Session loginSystemUser();
 
 
+    String issueJWTToken( final String origin ) throws TokenCreateException;
+
+    boolean verifyJWTToken( final String token ) throws TokenParseException;
+
     /* *************************************************
      *
      */
@@ -299,6 +349,9 @@ public interface IdentityManager
     /* *************************************************
      */
     List<Role> getAllRoles();
+
+
+    Role findRoleByName( String roleName );
 
 
     /* *************************************************
@@ -347,7 +400,7 @@ public interface IdentityManager
 
 
     /* *************************************************
-    */
+     */
     UserToken createUserToken( User user, String token, String secret, String issuer, int tokenType, Date validDate );
 
 
@@ -368,7 +421,7 @@ public interface IdentityManager
 
     /* *************************************************
      */
-    public void updateUserToken( String oldName, User user, String token, String secret, String issuer, int tokenType,
+    public void updateUserToken( String tokenId, User user, String token, String secret, String issuer, int tokenType,
                                  Date validDate );
 
 

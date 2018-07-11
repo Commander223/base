@@ -11,7 +11,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.subutai</groupId>
   <artifactId>mgmt-parent</artifactId>
-  <version>4.0.12-SNAPSHOT</version>
+  <version>7.0.5-SNAPSHOT</version>
 
   <name>Subutai Server Project Parent</name>
 
@@ -126,7 +126,7 @@
     <org.bouncycastle.version>1.52</org.bouncycastle.version>
 
     <!-- JWT lib -->
-    <nimbus.jwt.version>4.3.1</nimbus.jwt.version>
+    <nimbus.jwt.version>5.9</nimbus.jwt.version>
 
     <!-- HTML Parser -->
     <jsoup.version>1.10.1</jsoup.version>
@@ -138,8 +138,8 @@
     <openjpa.version>2.3.0</openjpa.version>
     <derby.version>10.12.1.1</derby.version>
 
-    <org.apache.httpcomonents.httpclient.version>4.5</org.apache.httpcomonents.httpclient.version>
-    <org.apache.httpcomonents.httpcore.version>4.4.1</org.apache.httpcomonents.httpcore.version>
+    <org.apache.httpcomonents.httpclient.version>4.5.2</org.apache.httpcomonents.httpclient.version>
+    <org.apache.httpcomonents.httpcore.version>4.4.5</org.apache.httpcomonents.httpcore.version>
     <org.apache.commons.lang3.version>3.4</org.apache.commons.lang3.version>
     <org.apache.commons.io.version>2.4</org.apache.commons.io.version>
     <slf4j.version>1.7.12</slf4j.version>
@@ -294,20 +294,21 @@
       </dependency>
 
       <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
-      <!-- lxc-quota-manager -->
+
+      <!-- environment-metadata-manager -->
       <dependency>
         <groupId>${project.groupId}</groupId>
-        <artifactId>lxc-quota-manager-api</artifactId>
+        <artifactId>environment-metadata-manager-api</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
-        <artifactId>lxc-quota-manager-impl</artifactId>
+        <artifactId>environment-metadata-manager-impl</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
-        <artifactId>lxc-quota-manager-cli</artifactId>
+        <artifactId>environment-metadata-manager-rest</artifactId>
         <version>${project.version}</version>
       </dependency>
 
@@ -491,49 +492,6 @@
       </dependency>
 
       <!--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-->
-      <!--plugin-manager -->
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>plugin-common-core</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-
-      <!--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-->
-      <!--plugin-manager -->
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>plugin-manager-api</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>plugin-manager-impl</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>plugin-manager-rest</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-
-      <!--~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~-->
-      <!--bazaar -->
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>bazaar-plugin-api</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>bazaar-plugin-impl</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>bazaar-plugin-rest</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>test-cli</artifactId>
@@ -560,6 +518,11 @@
       <dependency>
         <groupId>${project.groupId}</groupId>
         <artifactId>hub-manager-rest</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>hub-manager-cli</artifactId>
         <version>${project.version}</version>
       </dependency>
 
@@ -606,24 +569,6 @@
       </dependency>
 
       <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
-      <!-- strategy-manager -->
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>strategy-manager-api</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>strategy-manager-impl</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${project.groupId}</groupId>
-        <artifactId>strategy-manager-rest</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-
-      <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
       <!-- Template Manager-->
       <dependency>
         <groupId>${project.groupId}</groupId>
@@ -635,7 +580,11 @@
         <artifactId>template-manager-impl</artifactId>
         <version>${project.version}</version>
       </dependency>
-
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>template-manager-rest</artifactId>
+        <version>${project.version}</version>
+      </dependency>
       <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
       <!-- tracker -->
       <dependency>
@@ -1013,6 +962,21 @@
         <version>2.2.0</version>
       </dependency>
 
+      <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+      <!--desktop-manager-->
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>desktop-manager-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>desktop-manager-impl</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ -->
+
     </dependencies>
   </dependencyManagement>
 
@@ -1153,7 +1117,8 @@
                 <stylesheet>default.xsl</stylesheet>
                 <fileMappers>
                   <!-- Configures the file extension of the output files. -->
-                  <fileMapper implementation="org.codehaus.plexus.components.io.filemappers.FileExtensionMapper">
+                  <fileMapper
+                      implementation="org.codehaus.plexus.components.io.filemappers.FileExtensionMapper">
                     <targetExtension>.html</targetExtension>
                   </fileMapper>
                 </fileMappers>

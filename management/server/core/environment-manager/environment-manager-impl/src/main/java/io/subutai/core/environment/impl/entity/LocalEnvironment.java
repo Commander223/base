@@ -37,11 +37,13 @@ import com.google.common.collect.Sets;
 
 import io.subutai.common.environment.ContainerDto;
 import io.subutai.common.environment.ContainerHostNotFoundException;
+import io.subutai.common.environment.ContainerQuotaDto;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.environment.EnvironmentModificationException;
 import io.subutai.common.environment.EnvironmentNotFoundException;
 import io.subutai.common.environment.EnvironmentPeer;
 import io.subutai.common.environment.EnvironmentStatus;
+import io.subutai.common.environment.HubEnvironment;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.ContainerId;
@@ -52,6 +54,7 @@ import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.protocol.P2pIps;
+import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.objects.PermissionObject;
 import io.subutai.common.security.relation.RelationManager;
 import io.subutai.common.security.relation.model.RelationMeta;
@@ -161,6 +164,15 @@ public class LocalEnvironment implements Environment, Serializable
     @JsonIgnore
     private boolean uploaded = false;
 
+    @Column
+    @JsonIgnore
+    private boolean deleted = false;
+
+    @Enumerated( EnumType.STRING )
+    @Column( name = "ssh_key_type", nullable = false )
+    @JsonProperty( "sshKeyType" )
+    private SshEncryptionType sshKeyType = SshEncryptionType.RSA;
+
 
     protected LocalEnvironment()
     {
@@ -172,7 +184,7 @@ public class LocalEnvironment implements Environment, Serializable
         Preconditions.checkArgument( !Strings.isNullOrEmpty( name ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( peerId ) );
 
-        this.name = name;
+        this.name = name.trim();
         if ( !Strings.isNullOrEmpty( sshKey ) )
         {
             sshKeys.add( sshKey.trim() );
@@ -194,6 +206,24 @@ public class LocalEnvironment implements Environment, Serializable
     public void markAsUploaded()
     {
         uploaded = true;
+    }
+
+
+    public void markAsNotUploaded()
+    {
+        this.uploaded = false;
+    }
+
+
+    public boolean isDeleted()
+    {
+        return deleted;
+    }
+
+
+    public void markAsDeleted()
+    {
+        deleted = true;
     }
 
 
@@ -276,6 +306,18 @@ public class LocalEnvironment implements Environment, Serializable
     }
 
 
+    public SshEncryptionType getSshKeyType()
+    {
+        return sshKeyType == null ? SshEncryptionType.RSA : sshKeyType;
+    }
+
+
+    public void setSshKeyType( final SshEncryptionType sshKeyType )
+    {
+        this.sshKeyType = sshKeyType;
+    }
+
+
     @Override
     public Long getUserId()
     {
@@ -341,6 +383,23 @@ public class LocalEnvironment implements Environment, Serializable
 
 
     @Override
+    public EnvironmentContainerHost getContainerHostByIp( String ip ) throws ContainerHostNotFoundException
+    {
+        Preconditions.checkNotNull( ip, "Invalid ip" );
+
+        for ( final EnvironmentContainerHost containerHost : getContainerHosts() )
+        {
+            if ( containerHost.getIp().equals( ip ) )
+            {
+                return containerHost;
+            }
+        }
+
+        throw new ContainerHostNotFoundException( String.format( "Container host not found by ip %s", ip ) );
+    }
+
+
+    @Override
     public Set<EnvironmentContainerHost> getContainerHostsByPeerId( String id )
     {
         Preconditions.checkNotNull( id, "Invalid id" );
@@ -397,7 +456,7 @@ public class LocalEnvironment implements Environment, Serializable
     }
 
 
-    void removeEnvironmentPeer( final String peerId )
+    public void removeEnvironmentPeer( final String peerId )
     {
 
         Preconditions.checkNotNull( peerId, "Environment peer id could not be null." );
@@ -409,6 +468,9 @@ public class LocalEnvironment implements Environment, Serializable
             if ( environmentPeer.getPeerId().equals( peerId ) )
             {
                 iterator.remove();
+
+                ( ( EnvironmentPeerImpl ) environmentPeer ).setEnvironment( null );
+
                 break;
             }
         }
@@ -488,7 +550,7 @@ public class LocalEnvironment implements Environment, Serializable
             LocalPeer localPeer = peerManager.getLocalPeer();
 
             boolean isLocalContainer = localPeer.getId().equals( host.getPeerId() );
-
+            ContainerQuotaDto quota = null;
             try
             {
                 // can not use host.getState() b/c proxyContainer throws error due to unset Env
@@ -498,22 +560,29 @@ public class LocalEnvironment implements Environment, Serializable
                 if ( isLocalContainer )
                 {
                     containerHostState = localPeer.getContainerState( containerId );
+                    quota = new ContainerQuotaDto( localPeer.getQuota( containerId ) );
                 }
                 else
                 {
-                    // in case of proxy container, exception will be thrown and state will be UNKNOWN
+                    // in case of proxy container, exception will be thrown and state will be UNKNOWN and quota will
+                    // be null
                     containerHostState = peerManager.getPeer( host.getPeerId() ).getContainerState( containerId );
+                    quota = new ContainerQuotaDto( peerManager.getPeer( host.getPeerId() ).getQuota( containerId ) );
                 }
             }
             catch ( Exception e )
             {
-                LOG.warn( "Error getting container state: {}", e.getMessage() );
+                LOG.warn( "Error getting container state/quota: {}", e.getMessage() );
             }
 
-            containerDtos.add( new ContainerDto( host.getId(), getId(), host.getHostname(), host.getIp(),
-                    host.getTemplateName(), host.getContainerSize(), host.getArch().name(), host.getTags(),
-                    host.getPeerId(), host.getResourceHostId().getId(), isLocalContainer, Common.SUBUTAI_ID,
-                    containerHostState, host.getTemplateId(), host.getContainerName() ) );
+            ContainerDto containerDto =
+                    new ContainerDto( host.getId(), getId(), host.getHostname(), host.getIp(), host.getTemplateName(),
+                            host.getContainerSize(), host.getArch().name(), host.getTags(), host.getPeerId(),
+                            host.getResourceHostId().getId(), isLocalContainer,
+                            this instanceof HubEnvironment ? Common.HUB_ID : Common.SUBUTAI_ID, containerHostState,
+                            host.getTemplateId(), host.getContainerName(), host.getResourceHostId().getId() );
+            containerDto.setQuota( quota );
+            containerDtos.add( containerDto );
         }
 
         return containerDtos;
@@ -590,7 +659,16 @@ public class LocalEnvironment implements Environment, Serializable
     {
         Preconditions.checkNotNull( container );
 
-        this.containers.remove( container );
+        try
+        {
+            EnvironmentContainerHost environmentContainerHost = getContainerHostById( container.getId() );
+            ( ( EnvironmentContainerImpl ) environmentContainerHost ).nullEnvironment();
+            this.containers.remove( container );
+        }
+        catch ( ContainerHostNotFoundException e )
+        {
+            //ignore
+        }
     }
 
 

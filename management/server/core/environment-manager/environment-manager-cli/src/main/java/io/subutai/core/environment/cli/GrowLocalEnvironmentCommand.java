@@ -13,15 +13,15 @@ import com.google.common.base.Strings;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.environment.Node;
 import io.subutai.common.environment.Topology;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.ResourceHost;
 import io.subutai.core.environment.api.EnvironmentManager;
 import io.subutai.core.identity.rbac.cli.SubutaiShellCommandSupport;
 import io.subutai.core.peer.api.PeerManager;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 /**
- * Adds environment container hosts to target environment
+ * Adds environment container host to target environment
  */
 @Command( scope = "environment", name = "grow-local", description = "Command to grow local environment" )
 public class GrowLocalEnvironmentCommand extends SubutaiShellCommandSupport
@@ -41,15 +41,6 @@ public class GrowLocalEnvironmentCommand extends SubutaiShellCommandSupport
      * <p>{@code required = true}</p>
      */
             String templateName;
-
-
-    @Argument( name = "numberOfContainers", description = "Number of containers", index = 2, multiValued = false,
-            required = true )
-    /**
-     * {@value numberOfContainers} number of containers to add to environment
-     * <p>{@code required = true}</p>
-     */
-            int numberOfContainers;
 
 
     @Argument( name = "async", description = "asynchronous build", index = 3, multiValued = false, required = false )
@@ -90,8 +81,9 @@ public class GrowLocalEnvironmentCommand extends SubutaiShellCommandSupport
         Environment environment = environmentManager.loadEnvironment( environmentId );
         String containerName = String.format( "Container%d", new Random().nextInt( 999 ) );
 
-        Node node = new Node( containerName, containerName, ContainerSize.TINY, peerId, hostId,
-                peerManager.getLocalPeer().getTemplateByName( templateName ).getId() );
+        Node node =
+                new Node( containerName, containerName, ContainerSize.getDefaultContainerQuota( ContainerSize.TINY ),
+                        peerId, hostId, peerManager.getLocalPeer().getTemplateByName( templateName ).getId() );
 
         Topology topology = new Topology( environment.getName() );
         topology.addNodePlacement( peerId, node );

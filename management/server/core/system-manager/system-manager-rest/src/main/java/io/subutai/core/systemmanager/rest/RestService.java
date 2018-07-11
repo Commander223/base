@@ -6,6 +6,7 @@ import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
@@ -55,13 +56,12 @@ public interface RestService
     @Produces( { MediaType.TEXT_PLAIN } )
     Response setNetworkSettings( @FormParam( "publicUrl" ) String publicUrl,
                                  @FormParam( "publicSecurePort" ) String publicSecurePort,
-                                 @FormParam( "startRange" ) String startRange,
-                                 @FormParam( "endRange" ) String endRange ) throws ConfigurationException;
+                                 @FormParam( "useRhIp" ) boolean userRhIp ) throws ConfigurationException;
 
     @GET
     @Path( "advanced_settings" )
     @Produces( { MediaType.APPLICATION_JSON } )
-    Response getAdvancedSettings();
+    Response getAdvancedSettings( @QueryParam( "logfile" ) String logFile );
 
 
     @GET
@@ -72,7 +72,7 @@ public interface RestService
 
     @POST
     @Path( "update_management" )
-    @Produces( { MediaType.APPLICATION_JSON } )
+    @Produces( { MediaType.TEXT_PLAIN } )
     Response update();
 
     @GET
@@ -84,4 +84,14 @@ public interface RestService
     @Path( "is_update_in_progress" )
     @Produces( { MediaType.TEXT_PLAIN } )
     Response isUpdateInProgress();
+
+    @GET
+    @Path( "is_env_workflow_in_progress" )
+    @Produces( { MediaType.TEXT_PLAIN } )
+    Response isEnvironmentWorkflowInProgress();
+
+    @GET
+    @Path( "hub_ip" )
+    @Produces( { MediaType.TEXT_PLAIN } )
+    Response getHubIp();
 }

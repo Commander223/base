@@ -11,46 +11,23 @@ import com.google.common.base.Preconditions;
 
 import io.subutai.common.environment.Node;
 import io.subutai.common.environment.Topology;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.ResourceHost;
 import io.subutai.core.environment.api.EnvironmentManager;
 import io.subutai.core.identity.rbac.cli.SubutaiShellCommandSupport;
 import io.subutai.core.peer.api.PeerManager;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 @Command( scope = "environment", name = "build-local", description = "Command to build environment on local peer" )
 public class BuildLocalEnvironmentCommand extends SubutaiShellCommandSupport
 {
 
-    @Argument( name = "templateName", description = "Template name", index = 0, multiValued = false, required = true )
-    /**
-     * {@value templateName} template to clone for environment hosts
-     * {@code required = true}
-     */
-            String templateName;
+    @Argument( name = "templateName", description = "Template name", required = true )
+    private String templateName;
 
 
-    @Argument( name = "numberOfContainers", description = "Number of containers", index = 1, multiValued = false,
-            required = true )
-    /**
-     * {@value numberOfContainers }number of container hosts to create in environment
-     * {@code required = true}
-     */
-            int numberOfContainers;
-    @Argument( name = "subnetCidr", description = "Subnet in CIDR notation", index = 2, multiValued = false, required
-            = true )
-    /**
-     * {@value subnetCidr } Subnet in CIDR notation
-     * {@code required = true}
-     */
-            String subnetCidr;
-
-    @Argument( name = "async", description = "asynchronous build", index = 3, multiValued = false, required = false )
-    /**
-     * {@value async} Create environment asynchronously
-     * {@code async = false}
-     */
-            boolean async = false;
+    @Argument( name = "async", description = "asynchronous build", index = 3 )
+    private boolean async = false;
 
 
     private final EnvironmentManager environmentManager;
@@ -81,8 +58,9 @@ public class BuildLocalEnvironmentCommand extends SubutaiShellCommandSupport
         String hostId = resourceHosts.iterator().next().getId();
         String containerName = String.format( "Container%d", new Random().nextInt( 999 ) );
 
-        Node node = new Node( containerName, containerName, ContainerSize.TINY, peerId, hostId,
-                peerManager.getLocalPeer().getTemplateByName( templateName ).getId() );
+        Node node =
+                new Node( containerName, containerName, ContainerSize.getDefaultContainerQuota( ContainerSize.TINY ),
+                        peerId, hostId, peerManager.getLocalPeer().getTemplateByName( templateName ).getId() );
 
         Topology topology = new Topology( "Dummy environment name" );
         topology.addNodePlacement( peerId, node );

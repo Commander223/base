@@ -20,23 +20,24 @@ import io.subutai.common.environment.CreateEnvironmentContainersResponse;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.environment.Node;
 import io.subutai.common.environment.PrepareTemplatesRequest;
+import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.host.HostArchitecture;
 import io.subutai.common.peer.ContainerHost;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.Host;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.security.objects.PermissionObject;
 import io.subutai.common.security.relation.RelationLinkDto;
 import io.subutai.common.settings.Common;
 import io.subutai.common.task.CloneRequest;
+import io.subutai.core.hubmanager.api.RestResult;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.hubmanager.impl.environment.state.Context;
 import io.subutai.core.hubmanager.impl.environment.state.StateHandler;
-import io.subutai.core.hubmanager.impl.http.RestResult;
 import io.subutai.hub.share.dto.environment.ContainerStateDto;
 import io.subutai.hub.share.dto.environment.EnvironmentNodeDto;
 import io.subutai.hub.share.dto.environment.EnvironmentNodesDto;
 import io.subutai.hub.share.dto.environment.EnvironmentPeerDto;
+import io.subutai.hub.share.quota.ContainerQuota;
 
 import static io.subutai.hub.share.dto.environment.ContainerStateDto.BUILDING;
 
@@ -72,6 +73,10 @@ public class BuildContainerStateHandler extends StateHandler
             logEnd();
 
             return result;
+        }
+        catch ( HubManagerException e )
+        {
+            throw e;
         }
         catch ( Exception e )
         {
@@ -109,12 +114,12 @@ public class BuildContainerStateHandler extends StateHandler
 
         for ( EnvironmentNodeDto nodeDto : nodesDto.getNodes() )
         {
-            ContainerSize contSize = ContainerSize.valueOf( nodeDto.getContainerSize() );
+            ContainerQuota quota = nodeDto.getContainerQuota();
 
             log.info( "- noteDto: containerId={}, containerName={}, hostname={}, state={}", nodeDto.getContainerId(),
                     nodeDto.getContainerName(), nodeDto.getHostName(), nodeDto.getState() );
 
-            Node node = new Node( nodeDto.getHostName(), nodeDto.getContainerName(), contSize, peerDto.getPeerId(),
+            Node node = new Node( nodeDto.getHostName(), nodeDto.getContainerName(), quota, peerDto.getPeerId(),
                     nodeDto.getHostId(), nodeDto.getTemplateId() );
 
             nodes.add( node );
@@ -125,10 +130,11 @@ public class BuildContainerStateHandler extends StateHandler
 
         for ( Node node : nodes )
         {
-            Set<String> templates = rhTemplates.getOrDefault( node.getHostId(), new HashSet<String>() );
+            Set<String> templates = rhTemplates.get( node.getHostId() );
 
-            if ( templates.isEmpty() )
+            if ( templates == null )
             {
+                templates = new HashSet<>();
                 rhTemplates.put( node.getHostId(), templates );
             }
 
@@ -138,7 +144,8 @@ public class BuildContainerStateHandler extends StateHandler
         try
         {
             ctx.localPeer.prepareTemplates(
-                    new PrepareTemplatesRequest( peerDto.getEnvironmentInfo().getId(), rhTemplates ) );
+                    new PrepareTemplatesRequest( peerDto.getEnvironmentInfo().getId(), peerDto.getKurjunToken(),
+                            rhTemplates ) );
         }
         catch ( PeerException e )
         {
@@ -154,10 +161,34 @@ public class BuildContainerStateHandler extends StateHandler
 
         // Clone requests may be empty if all containers already exists. For example, in case of duplicated requests.
         CreateEnvironmentContainersResponse cloneResponses;
+
+        Set<CloneRequest> cloneRequestsSet = cloneRequests.getRequests();
+
+        //check if container with such hostname already exists within not registered ones
+        //destroy if so and then continue
+        Set<ContainerHostInfo> containerHostInfos = ctx.localPeer.getNotRegisteredContainers();
+        for ( CloneRequest cloneRequest : cloneRequestsSet )
+        {
+            for ( ContainerHostInfo containerHostInfo : containerHostInfos )
+            {
+                if ( cloneRequest.getHostname().equalsIgnoreCase( containerHostInfo.getHostname() ) )
+                {
+                    try
+                    {
+                        ctx.localPeer.destroyNotRegisteredContainer( containerHostInfo.getId() );
+                    }
+                    catch ( PeerException e )
+                    {
+                        log.warn( "Error destroying not registered duplicate container: {}", e.getMessage() );
+                    }
+                }
+            }
+        }
+
         try
         {
-            cloneResponses = cloneRequests.getRequests().isEmpty() ? null :
-                             ctx.localPeer.createEnvironmentContainers( cloneRequests );
+            cloneResponses =
+                    cloneRequestsSet.isEmpty() ? null : ctx.localPeer.createEnvironmentContainers( cloneRequests );
         }
         catch ( PeerException e )
         {
@@ -206,6 +237,8 @@ public class BuildContainerStateHandler extends StateHandler
 
         nodeDto.setContainerId( contId );
 
+        nodeDto.setContainerName( ch.getContainerName() );
+
         nodeDto.setState( EnumUtils.getEnum( ContainerStateDto.class, ch.getState().toString() ) );
     }
 
@@ -219,7 +252,8 @@ public class BuildContainerStateHandler extends StateHandler
         Set<ContainerHost> envContainers = ctx.localPeer.findContainersByEnvironmentId( envId );
 
         CreateEnvironmentContainersRequest createRequests =
-                new CreateEnvironmentContainersRequest( envId, peerDto.getPeerId(), peerDto.getOwnerId() );
+                new CreateEnvironmentContainersRequest( envId, Common.HUB_ID,
+                        peerDto.getEnvironmentInfo().getOwnerId() );
 
         log.info( "Clone requests:" );
 
@@ -242,11 +276,8 @@ public class BuildContainerStateHandler extends StateHandler
 
     private CloneRequest createCloneRequest( EnvironmentNodeDto nodeDto ) throws HubManagerException
     {
-        ContainerSize contSize = ContainerSize.valueOf( nodeDto.getContainerSize() );
-
-        return new CloneRequest( nodeDto.getHostId(), nodeDto.getContainerName().replace( " ", "-" ),
-                nodeDto.getContainerName(), nodeDto.getIp(), nodeDto.getTemplateId(), HostArchitecture.AMD64,
-                contSize );
+        return new CloneRequest( nodeDto.getHostId(), nodeDto.getHostName(), nodeDto.getContainerName(),
+                nodeDto.getIp(), nodeDto.getTemplateId(), HostArchitecture.AMD64, nodeDto.getContainerQuota() );
     }
 
 
@@ -288,9 +319,10 @@ public class BuildContainerStateHandler extends StateHandler
             Host host = ctx.localPeer.getContainerHostById( containerId );
 
             RequestBuilder rb = new RequestBuilder( String.format(
-                    "rm -rf %1$s && " + "mkdir -p %1$s && " + "chmod 700 %1$s && "
-                            + "ssh-keygen -t rsa -P '' -f %1$s/id_rsa -q && " + "cat %1$s/id_rsa.pub",
-                    Common.CONTAINER_SSH_FOLDER ) );
+                    "if [ -f %1$s/id_rsa.pub ]; " + "then cat %1$s/id_rsa.pub ;" + "else rm -rf %1$s ; "
+                            + "mkdir -p %1$s && " + "chmod 700 %1$s && "
+                            + "ssh-keygen -t rsa -P '' -f %1$s/id_rsa -q && " + "cat %1$s/id_rsa.pub; fi",
+                    Common.CONTAINER_SSH_FOLDER ) ).withTimeout( 60 );
 
             result = commandUtil.execute( rb, host );
         }

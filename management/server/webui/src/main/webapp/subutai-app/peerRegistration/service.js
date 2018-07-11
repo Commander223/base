@@ -18,9 +18,9 @@ function peerRegistrationService($http) {
         cancelPeerRequest: cancelPeerRequest,
         unregisterPeerRequest: unregisterPeerRequest,
         renamePeer: renamePeer,
-        getResourceHosts: getResourceHosts,
         checkPeer: checkPeer,
-
+        updatePeerUrl: updatePeerUrl,
+        loadPeerDataAsync: loadPeerDataAsync,
 
         getPeersUrl: function () {
             return PEERS_URL;
@@ -31,8 +31,13 @@ function peerRegistrationService($http) {
 
     //// Implementation
 
+
     function getRequestedPeers() {
         return $http.get(PEERS_URL, {withCredentials: true, headers: {'Content-Type': 'application/json'}});
+    }
+
+    function loadPeerDataAsync() {
+        return $http.get(PEERS_URL +'states', {withCredentials: true, headers: {'Content-Type': 'application/json'}});
     }
 
     function registerRequest(postData) {
@@ -79,11 +84,6 @@ function peerRegistrationService($http) {
         );
     }
 
-
-    function getResourceHosts() {
-        return $http.get(RH_URL, {withCredentials: true, headers: {'Content-Type': 'application/json'}});
-    }
-
     function checkPeer(ip) {
         var data =
         {
@@ -101,6 +101,15 @@ function peerRegistrationService($http) {
         var postData = 'peerId=' + peerId + '&name=' + newName;
         return $http.put(
             PEERS_URL + 'rename/',
+            postData,
+            {withCredentials: true, headers: {'Content-Type': 'application/x-www-form-urlencoded'}}
+        );
+    }
+
+    function updatePeerUrl(peerId, ip){
+        var postData = 'peerId=' + peerId + '&ip=' + ip;
+        return $http.put(
+            PEERS_URL + 'url/',
             postData,
             {withCredentials: true, headers: {'Content-Type': 'application/x-www-form-urlencoded'}}
         );

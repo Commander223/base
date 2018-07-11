@@ -12,7 +12,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import io.subutai.common.host.HostInterfaces;
+import io.subutai.common.environment.Nodes;
 import io.subutai.common.metric.ResourceHostMetrics;
 import io.subutai.common.network.NetworkResourceImpl;
 import io.subutai.common.network.UsedNetworkResources;
@@ -98,11 +98,10 @@ public interface RestService
     @Consumes( MediaType.APPLICATION_JSON )
     Integer reserveNetResources( NetworkResourceImpl networkResource );
 
-    @GET
-    @Path( "interfaces" )
-    @Produces( MediaType.APPLICATION_JSON )
+    @POST
+    @Path( "canaccommodate" )
     @Consumes( MediaType.APPLICATION_JSON )
-    HostInterfaces getNetworkInterfaces();
+    Boolean canAccommodate( Nodes nodes );
 
     @POST
     @Path( "p2presetkey" )
@@ -125,6 +124,12 @@ public interface RestService
     @Consumes( MediaType.APPLICATION_JSON )
     @Produces( MediaType.APPLICATION_JSON )
     void cleanupEnvironment( @PathParam( "environmentId" ) EnvironmentId environmentId );
+
+    @POST
+    @Path( "hosts/{resourceHostId}/update" )
+    @Consumes( MediaType.APPLICATION_JSON )
+    @Produces( MediaType.APPLICATION_JSON )
+    Response updateResourceHost( @PathParam( "resourceHostId" ) String resourceHostId );
 
     @POST
     @Path( "alert" )
@@ -150,4 +155,9 @@ public interface RestService
     @Path( "limits/{peerId}" )
     @Produces( MediaType.APPLICATION_JSON )
     Response getResourceLimits( @PathParam( "peerId" ) final PeerId peerId );
+
+    @GET
+    @Path( "templatesprogress/{templateName}" )
+    @Produces( MediaType.APPLICATION_JSON )
+    Response getTemplateUploadProgress( @PathParam( "templateName" ) String templateName );
 }

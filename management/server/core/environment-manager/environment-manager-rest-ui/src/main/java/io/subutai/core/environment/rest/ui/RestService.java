@@ -22,10 +22,16 @@ public interface RestService
 {
     /** Templates **************************************************** */
     @GET
-    @Path( "templates" )
+    @Path( "templates/verified/{templateName}" )
     @Produces( { MediaType.APPLICATION_JSON } )
-    Response listTemplates();
+    Response getVerifiedTemplate( @PathParam( "templateName" ) String templateName );
 
+    @POST
+    @Path( "{environmentId}/containers/{containerId}/export/{name}/{version}/{private}" )
+    @Produces( { MediaType.TEXT_PLAIN } )
+    Response createTemplate( @PathParam( "environmentId" ) String environmentId,
+                             @PathParam( "containerId" ) String containerId, @PathParam( "name" ) String templateName,
+                             @PathParam( "version" ) String version, @PathParam( "private" ) boolean privateTemplate );
 
     /** Environments **************************************************** */
 
@@ -169,14 +175,6 @@ public interface RestService
     @Path( "containers/types/info" )
     @Produces( { MediaType.APPLICATION_JSON } )
     Response listContainerTypesInfo();
-
-
-    /** Peers strategy **************************************************** */
-
-    @GET
-    @Path( "strategies" )
-    @Produces( { MediaType.APPLICATION_JSON } )
-    Response listPlacementStrategies();
 
 
     /** Peers **************************************************** */

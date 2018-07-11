@@ -2,7 +2,9 @@ package io.subutai.hub.share.quota;
 
 
 import java.util.Collection;
-import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -16,27 +18,51 @@ import io.subutai.hub.share.resource.ContainerResourceType;
  */
 public class ContainerQuota
 {
-    @JsonProperty
-    private EnumMap<ContainerResourceType, Quota> resources = new EnumMap<>( ContainerResourceType.class );
+    @JsonProperty( value = "containerSize" )
+    private ContainerSize containerSize;
+
+    @JsonProperty( value = "resources" )
+    private Map<ContainerResourceType, Quota> resources;
 
 
-    public ContainerQuota()
+    public ContainerQuota( @JsonProperty( value = "containerSize" ) final ContainerSize containerSize,
+                           @JsonProperty( value = "resources" ) final Map<ContainerResourceType, Quota> resources )
     {
+        this.containerSize = containerSize;
+        this.resources = resources;
     }
 
 
-    public ContainerQuota( Quota quota )
+    public ContainerQuota( ContainerSize containerSize )
     {
+        this.containerSize = containerSize;
+    }
+
+
+    public ContainerQuota( ContainerSize containerSize, Quota quota )
+    {
+        this.containerSize = containerSize;
         add( quota );
     }
 
 
-    public ContainerQuota( Quota... quotas )
+    public ContainerQuota( ContainerSize containerSize, Quota... quotas )
     {
+        this.containerSize = containerSize;
         for ( final Quota quota : quotas )
         {
             add( quota );
         }
+    }
+
+
+    protected Map<ContainerResourceType, Quota> getResources()
+    {
+        if ( this.resources == null )
+        {
+            this.resources = new HashMap<>();
+        }
+        return this.resources;
     }
 
 
@@ -46,26 +72,51 @@ public class ContainerQuota
         Preconditions.checkNotNull( quota.getResource() );
         Preconditions.checkNotNull( quota.getResource().getContainerResourceType() );
 
-        resources.put( quota.getResource().getContainerResourceType(), quota );
+        getResources().put( quota.getResource().getContainerResourceType(), quota );
+    }
+
+
+    public void addAll( final List<Quota> quota )
+    {
+        for ( Quota q : quota )
+        {
+            add( q );
+        }
+    }
+
+
+    public void copyValues( final ContainerQuota containerQuota )
+    {
+        this.containerSize = containerQuota.getContainerSize();
+        for ( Quota quota : containerQuota.getAll() )
+        {
+            add( quota );
+        }
     }
 
 
     public Quota get( ContainerResourceType containerResourceType )
     {
-        return resources.get( containerResourceType );
+        return getResources().get( containerResourceType );
+    }
+
+
+    public ContainerSize getContainerSize()
+    {
+        return containerSize;
     }
 
 
     @JsonIgnore
     public Collection<Quota> getAll()
     {
-        return resources.values();
+        return getResources().values();
     }
 
 
     @Override
     public String toString()
     {
-        return "ContainerQuota{" + "resources=" + resources + '}';
+        return "ContainerQuota{" + "resources=" + getResources() + '}';
     }
 }

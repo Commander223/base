@@ -1,19 +1,18 @@
 package io.subutai.core.localpeer.impl.tasks;
 
 
-import java.util.regex.Matcher;
+import java.util.Set;
 
 import com.google.common.base.Preconditions;
 
-import io.subutai.common.host.HostInterface;
 import io.subutai.common.network.UsedNetworkResources;
 import io.subutai.common.peer.ResourceHost;
 import io.subutai.common.protocol.P2PConnection;
 import io.subutai.common.protocol.P2PConnections;
 import io.subutai.common.protocol.Tunnel;
 import io.subutai.common.protocol.Tunnels;
-import io.subutai.common.settings.Common;
 import io.subutai.common.util.HostUtil;
+import io.subutai.common.util.P2PUtil;
 
 
 public class UsedHostNetResourcesTask extends HostUtil.Task<Object>
@@ -49,7 +48,6 @@ public class UsedHostNetResourcesTask extends HostUtil.Task<Object>
     @Override
     public Object call() throws Exception
     {
-
         //tunnels
         Tunnels tunnels = resourceHost.getTunnels();
         for ( Tunnel tunnel : tunnels.getTunnels() )
@@ -66,37 +64,11 @@ public class UsedHostNetResourcesTask extends HostUtil.Task<Object>
             usedNetworkResources.addP2pSubnet( p2PConnection.getIp() );
         }
 
-        for ( HostInterface iface : resourceHost.getHostInterfaces().getAll() )
+        //p2p iface names
+        Set<String> reservedP2pIfaceNames = resourceHost.getUsedP2pIfaceNames();
+        for ( String p2pIface : reservedP2pIfaceNames )
         {
-            //container subnet
-            Matcher matcher = Common.GATEWAY_INTERFACE_NAME_PATTERN.matcher( iface.getName().trim() );
-            if ( matcher.find() )
-            {
-                usedNetworkResources.addContainerSubnet( iface.getIp() );
-                usedNetworkResources.addVlan( Integer.parseInt( matcher.group( 1 ) ) );
-            }
-
-            //p2p subnet
-            matcher = Common.P2P_INTERFACE_NAME_PATTERN.matcher( iface.getName().trim() );
-            if ( matcher.find() )
-            {
-                usedNetworkResources.addP2pSubnet( iface.getIp() );
-                usedNetworkResources.addVlan( Integer.parseInt( matcher.group( 1 ) ) );
-            }
-
-            //add WAN subnet to prevent collisions
-            if ( "wan".equalsIgnoreCase( iface.getName() ) )
-            {
-                usedNetworkResources.addContainerSubnet( iface.getIp() );
-                usedNetworkResources.addP2pSubnet( iface.getIp() );
-            }
-
-            //add all supplementary network interfaces to exclusion list
-            if ( iface.getName().startsWith( "eth" ) )
-            {
-                usedNetworkResources.addContainerSubnet( iface.getIp() );
-                usedNetworkResources.addP2pSubnet( iface.getIp() );
-            }
+            usedNetworkResources.addVlan( P2PUtil.getVlanFromInterfaceName( p2pIface ) );
         }
 
         return null;

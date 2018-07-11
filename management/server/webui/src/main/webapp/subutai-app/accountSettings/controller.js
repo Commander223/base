@@ -17,18 +17,16 @@ function AccountCtrl(identitySrv, $scope, $rootScope, ngDialog, SweetAlert, cfpL
 	$timeout(function () {
 		vm.hasPGPplugin = hasPGPplugin();
 		if (!vm.hasPGPplugin) {
-			var pluginUrl = 'https://github.com/subutai-io/browsers/releases/tag/2.0.12';
+			var pluginUrl = 'https://github.com/subutai-io/browser-plugins/releases/tag/3.0.0';
 			var isFirefox = typeof InstallTrigger !== 'undefined';
 			var isChrome = !!window.chrome && !!window.chrome.webstore;
 
-			if (isChrome) {
-				pluginUrl = 'https://chrome.google.com/webstore/detail/subutai-social-e2e-plugin/kpmiofpmlciacjblommkcinncmneeoaa?utm_source=chrome-ntp-icon';
-			} else if (isFirefox) {
-				pluginUrl = 'https://addons.mozilla.org/en-US/firefox/addon/subutai-social-e2e-plugin/';
+			if (isChrome || isFirefox) {
+                pluginUrl = 'https://chrome.google.com/webstore/detail/subutai-e2e-plugin/ffddnlbamkjlbngpekmdpnoccckapcnh?utm_source=chrome-ntp-icon';
 			}
 
 			$rootScope.notifications = {
-				"message": "Install the subutai browser plugin for added security with end to end encryption.",
+				"message": "Install the Subutai browser plugin for added security with end to end encryption.",
 				"browserPluginMessage": true,
 				"date": moment().format('MMMM Do YYYY, HH:mm:ss'),
 				"links": [
@@ -67,39 +65,6 @@ function AccountCtrl(identitySrv, $scope, $rootScope, ngDialog, SweetAlert, cfpL
 		}
 	}, 3000);
 
-
-	identitySrv.isAdminCheck().success(function (data) {
-		if (data == true || data == 'true') {
-			identitySrv.isUpdateInProgress().success(function (data){
-				console.log("Update in progress: " + data);
-				 if (data == true || data == 'true') {
-					removeUpdateMessage();
-				 }else{
-					checkUpdate();
-				 }
-			});
-		}
-	});
-
-	function checkUpdate() {
-		identitySrv.getConfig().success(function (data) {
-			if (data.isUpdatesAvailable) {
-				$rootScope.notifications = {
-					"message": "Updates available",
-					"updateMessage": true,
-					"date": moment().format('MMMM Do YYYY, HH:mm:ss'),
-					"links": [
-					{
-						"text": "Update",
-						"href": "/#/settings-updates"
-					}
-					]
-				};
-			} else {
-				removeUpdateMessage();
-			}
-		});
-	}
 
 	function removeUpdateMessage() {
 		var notifications = sessionStorage.getItem('notifications');
@@ -217,4 +182,5 @@ function AccountCtrl(identitySrv, $scope, $rootScope, ngDialog, SweetAlert, cfpL
 			};
 		});
 	};
+
 }

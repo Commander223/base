@@ -14,13 +14,11 @@ import io.subutai.common.environment.HostAddresses;
 import io.subutai.common.environment.PeerTemplatesDownloadProgress;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
-import io.subutai.common.metric.ProcessResourceUsage;
+import io.subutai.common.host.Quota;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.protocol.CustomProxyConfig;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKey;
 import io.subutai.common.security.SshKeys;
@@ -135,14 +133,13 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
 
 
     @Override
-    public ProcessResourceUsage getProcessResourceUsage( ContainerId containerId, int pid )
+    public Quota getRawQuota( final ContainerId containerId )
     {
         try
         {
             Preconditions.checkNotNull( containerId );
-            Preconditions.checkArgument( pid > 0 );
-
-            return localPeer.getProcessResourceUsage( containerId, pid );
+            Preconditions.checkNotNull( containerId.getId() );
+            return localPeer.getRawQuota( containerId );
         }
         catch ( Exception e )
         {
@@ -150,6 +147,7 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
             throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
         }
     }
+
 
     //*********** Quota functions ***************
 
@@ -308,7 +306,7 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
     }
 
 
-    @Override
+/*    @Override
     public Response setContainerSize( final ContainerId containerId, ContainerSize containerSize )
     {
         try
@@ -326,7 +324,7 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
             LOGGER.error( e.getMessage(), e );
             throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
         }
-    }
+    }*/
 
 
     @Override
@@ -338,25 +336,6 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
             Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId.getId() ) );
 
             return localPeer.getResourceHostIdByContainerId( containerId );
-        }
-        catch ( Exception e )
-        {
-            LOGGER.error( e.getMessage(), e );
-            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
-        }
-    }
-
-
-    @Override
-    public Response addReverseProxy( final ReverseProxyConfig reverseProxyConfig )
-    {
-        try
-        {
-            Preconditions.checkNotNull( reverseProxyConfig );
-
-            localPeer.addReverseProxy( reverseProxyConfig );
-
-            return Response.ok().build();
         }
         catch ( Exception e )
         {
@@ -448,6 +427,7 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
 
     @Override
     public void updateAuthorizedKeysWithNewContainerHostname( final EnvironmentId environmentId,
+                                                              final SshEncryptionType sshEncryptionType,
                                                               final String oldHostname, final String newHostname )
     {
         try
@@ -455,8 +435,10 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
             Preconditions.checkNotNull( environmentId );
             Preconditions.checkArgument( !Strings.isNullOrEmpty( oldHostname ) );
             Preconditions.checkArgument( !Strings.isNullOrEmpty( newHostname ) );
+            Preconditions.checkNotNull( sshEncryptionType );
 
-            localPeer.updateAuthorizedKeysWithNewContainerHostname( environmentId, oldHostname, newHostname );
+            localPeer.updateAuthorizedKeysWithNewContainerHostname( environmentId, oldHostname, newHostname,
+                    sshEncryptionType );
         }
         catch ( Exception e )
         {
@@ -515,6 +497,74 @@ public class EnvironmentRestServiceImpl implements EnvironmentRestService
             EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
 
             environmentManager.excludePeerFromEnvironment( environmentId, peerId );
+
+            return Response.ok().build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( e.getMessage(), e );
+            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
+        }
+    }
+
+
+    @Override
+    public Response excludeContainerFromEnvironment( final String environmentId, final String containerId )
+    {
+        try
+        {
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ) );
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ) );
+
+            EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
+
+            environmentManager.excludeContainerFromEnvironment( environmentId, containerId );
+
+            return Response.ok().build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( e.getMessage(), e );
+            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
+        }
+    }
+
+
+    @Override
+    public Response updateContainerHostname( final String environmentId, final String containerId,
+                                             final String hostname )
+    {
+        try
+        {
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ) );
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ) );
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ) );
+
+            EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
+
+            environmentManager.updateContainerHostname( environmentId, containerId, hostname );
+
+            return Response.ok().build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( e.getMessage(), e );
+            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
+        }
+    }
+
+
+    @Override
+    public Response placeEnvironmentInfoByContainerId( final String environmentId, final String containerId )
+    {
+        try
+        {
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ) );
+            Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ) );
+
+            EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
+
+            environmentManager.placeEnvironmentInfoByContainerId( environmentId, containerId );
 
             return Response.ok().build();
         }

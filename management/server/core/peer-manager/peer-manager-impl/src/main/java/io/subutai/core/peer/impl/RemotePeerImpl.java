@@ -29,21 +29,20 @@ import io.subutai.common.environment.Containers;
 import io.subutai.common.environment.CreateEnvironmentContainersRequest;
 import io.subutai.common.environment.CreateEnvironmentContainersResponse;
 import io.subutai.common.environment.HostAddresses;
+import io.subutai.common.environment.Nodes;
 import io.subutai.common.environment.PeerTemplatesDownloadProgress;
 import io.subutai.common.environment.PrepareTemplatesRequest;
 import io.subutai.common.environment.PrepareTemplatesResponse;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
-import io.subutai.common.host.HostInterfaces;
+import io.subutai.common.host.Quota;
 import io.subutai.common.metric.HistoricalMetrics;
-import io.subutai.common.metric.ProcessResourceUsage;
 import io.subutai.common.metric.ResourceHostMetrics;
 import io.subutai.common.network.NetworkResourceImpl;
 import io.subutai.common.network.UsedNetworkResources;
 import io.subutai.common.peer.AlertEvent;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentContainerHost;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.Host;
@@ -61,7 +60,6 @@ import io.subutai.common.protocol.CustomProxyConfig;
 import io.subutai.common.protocol.P2PConfig;
 import io.subutai.common.protocol.P2PCredentials;
 import io.subutai.common.protocol.P2pIps;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.PublicKeyContainer;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKey;
@@ -79,6 +77,7 @@ import io.subutai.common.security.relation.model.RelationInfoMeta;
 import io.subutai.common.security.relation.model.RelationMeta;
 import io.subutai.common.security.relation.model.RelationStatus;
 import io.subutai.common.task.CloneResponse;
+import io.subutai.common.util.CollectionUtil;
 import io.subutai.common.util.JsonUtil;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
@@ -193,6 +192,40 @@ public class RemotePeerImpl implements RemotePeer
 
 
     @Override
+    public void excludeContainerFromEnvironment( final String environmentId, final String containerId )
+            throws PeerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ), "Invalid environment id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ), "Invalid container id" );
+
+        environmentWebClient.excludeContainerFromEnvironment( environmentId, containerId );
+    }
+
+
+    @Override
+    public void updateContainerHostname( final String environmentId, final String containerId, final String hostname )
+            throws PeerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ), "Invalid environment id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ), "Invalid container id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( hostname ), "Invalid hostname" );
+
+        environmentWebClient.updateContainerHostname( environmentId, containerId, hostname );
+    }
+
+
+    @Override
+    public void placeEnvironmentInfoByContainerId( final String environmentId, final String containerId )
+            throws PeerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( environmentId ), "Invalid environment id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( containerId ), "Invalid container id" );
+
+        environmentWebClient.placeEnvironmentInfoByContainerId( environmentId, containerId );
+    }
+
+
+    @Override
     public boolean isOnline()
     {
         return peerWebClient.ping();
@@ -289,18 +322,6 @@ public class RemotePeerImpl implements RemotePeer
     }
 
 
-    @PermitAll
-    @Override
-    public ProcessResourceUsage getProcessResourceUsage( final ContainerId containerId, int pid ) throws PeerException
-    {
-        Preconditions.checkNotNull( containerId, "Container id is null" );
-        Preconditions.checkArgument( containerId.getPeerId().getId().equals( peerInfo.getId() ) );
-        Preconditions.checkArgument( pid > 0, "Process pid must be greater than 0" );
-
-        return environmentWebClient.getProcessResourceUsage( containerId, pid );
-    }
-
-
     @Override
     public ContainerHostState getContainerState( final ContainerId containerId ) throws PeerException
     {
@@ -308,6 +329,13 @@ public class RemotePeerImpl implements RemotePeer
         Preconditions.checkArgument( containerId.getPeerId().getId().equals( peerInfo.getId() ) );
 
         return environmentWebClient.getState( containerId );
+    }
+
+
+    @Override
+    public Quota getRawQuota( final ContainerId containerId ) throws PeerException
+    {
+        return environmentWebClient.getRawQuota( containerId );
     }
 
 
@@ -430,7 +458,7 @@ public class RemotePeerImpl implements RemotePeer
         environmentWebClient.setQuota( containerId, containerQuota );
     }
 
-
+/*
     @Override
     public void setContainerSize( final ContainerId containerHostId, final ContainerSize containerSize )
             throws PeerException
@@ -440,7 +468,7 @@ public class RemotePeerImpl implements RemotePeer
         Preconditions.checkNotNull( containerSize, "Container size is null" );
 
         environmentWebClient.setContainerSize( containerHostId, containerSize );
-    }
+    }*/
 
 
     @Override
@@ -598,6 +626,18 @@ public class RemotePeerImpl implements RemotePeer
         }
 
         return messageRequest;
+    }
+
+
+    @RolesAllowed( "Environment-Management|Read" )
+    @Override
+    public boolean canAccommodate( final Nodes nodes ) throws PeerException
+    {
+        Preconditions.checkArgument(
+                nodes != null && ( !CollectionUtil.isMapEmpty( nodes.getQuotas() ) || !CollectionUtil
+                        .isCollectionEmpty( nodes.getNodes() ) ), "Invalid nodes" );
+
+        return peerWebClient.canAccommodate( nodes );
     }
 
 
@@ -846,13 +886,6 @@ public class RemotePeerImpl implements RemotePeer
 
 
     @Override
-    public HostInterfaces getInterfaces() throws PeerException
-    {
-        return peerWebClient.getInterfaces();
-    }
-
-
-    @Override
     public Integer reserveNetworkResource( final NetworkResourceImpl networkResource ) throws PeerException
     {
         Preconditions.checkNotNull( networkResource );
@@ -875,14 +908,17 @@ public class RemotePeerImpl implements RemotePeer
 
     @Override
     public void updateAuthorizedKeysWithNewContainerHostname( final EnvironmentId environmentId,
-                                                              final String oldHostname, final String newHostname )
+                                                              final String oldHostname, final String newHostname,
+                                                              final SshEncryptionType sshEncryptionType )
             throws PeerException
     {
         Preconditions.checkNotNull( environmentId );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( oldHostname ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( newHostname ) );
+        Preconditions.checkNotNull( sshEncryptionType );
 
-        environmentWebClient.updateAuthorizedKeysWithNewContainerHostname( environmentId, oldHostname, newHostname );
+        environmentWebClient.updateAuthorizedKeysWithNewContainerHostname( environmentId, oldHostname, newHostname,
+                sshEncryptionType );
     }
 
 
@@ -978,15 +1014,6 @@ public class RemotePeerImpl implements RemotePeer
         Preconditions.checkNotNull( peerId, "Invalid peer id" );
 
         return peerWebClient.getResourceLimits( peerId );
-    }
-
-
-    @Override
-    public void addReverseProxy( final ReverseProxyConfig reverseProxyConfig ) throws PeerException
-    {
-        Preconditions.checkNotNull( reverseProxyConfig, "Invalid proxy config" );
-
-        environmentWebClient.addReverseProxy( reverseProxyConfig );
     }
 
 

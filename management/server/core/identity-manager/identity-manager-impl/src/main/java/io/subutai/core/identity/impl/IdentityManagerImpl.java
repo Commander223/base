@@ -10,12 +10,14 @@ import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PrivilegedAction;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.security.PermitAll;
 import javax.annotation.security.RolesAllowed;
@@ -26,16 +28,22 @@ import javax.security.auth.callback.NameCallback;
 import javax.security.auth.callback.PasswordCallback;
 import javax.security.auth.callback.UnsupportedCallbackException;
 import javax.security.auth.login.LoginContext;
+import javax.servlet.http.HttpServletRequest;
 
+import org.bouncycastle.openpgp.PGPException;
 import org.bouncycastle.openpgp.PGPPublicKey;
 import org.bouncycastle.openpgp.PGPPublicKeyRing;
+import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.commons.lang.time.DateUtils;
+import org.apache.cxf.message.Message;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 
 import io.subutai.common.dao.DaoManager;
 import io.subutai.common.security.crypto.pgp.KeyPair;
@@ -63,7 +71,11 @@ import io.subutai.common.util.StringUtil;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.SecurityController;
 import io.subutai.core.identity.api.SessionManager;
+import io.subutai.core.identity.api.TokenHelper;
 import io.subutai.core.identity.api.dao.IdentityDataService;
+import io.subutai.core.identity.api.exception.TokenCreateException;
+import io.subutai.core.identity.api.exception.TokenParseException;
+import io.subutai.core.identity.api.exception.UserExistsException;
 import io.subutai.core.identity.api.model.Permission;
 import io.subutai.core.identity.api.model.Role;
 import io.subutai.core.identity.api.model.Session;
@@ -78,10 +90,12 @@ import io.subutai.core.identity.impl.model.UserDelegateEntity;
 import io.subutai.core.identity.impl.model.UserEntity;
 import io.subutai.core.identity.impl.model.UserTokenEntity;
 import io.subutai.core.identity.impl.utils.SecurityUtil;
+import io.subutai.core.identity.impl.utils.TokenHelperImpl;
 import io.subutai.core.security.api.SecurityManager;
 import io.subutai.core.security.api.crypto.EncryptionTool;
 import io.subutai.core.security.api.crypto.KeyManager;
 import io.subutai.core.security.api.model.SecurityKey;
+import io.subutai.core.template.api.TemplateManager;
 
 
 /**
@@ -99,16 +113,18 @@ public class IdentityManagerImpl implements IdentityManager
     private static final String SYSTEM_USER_EMAIL = "system@subutai.io";
     private static final String ADMIN_USER_FULL_NAME = "Admin User";
     private static final String ADMIN_ROLE = "Administrator";
-    private static final String KARAF_MANAGER_ROLE = "Karaf-Manager";
-    private static final String PEER_MANAGER_ROLE = "Peer-Manager";
     private static final String SYSTEM_ROLE = "Internal-System";
-    private static final String ENV_OWNER_ROLE = "Environment-Owner";
+    private static final long SIGN_TOKEN_TTL_SEC = 30;
 
     private IdentityDataService identityDataService = null;
     private SecurityController securityController = null;
     private DaoManager daoManager = null;
     private SecurityManager securityManager = null;
     private SessionManager sessionManager = null;
+
+    private Cache<String, Boolean> signTokensCache =
+            CacheBuilder.newBuilder().expireAfterWrite( SIGN_TOKEN_TTL_SEC, TimeUnit.SECONDS ).build();
+    private Cache<String, String> jwtTokenCache;
 
 
     /* *************************************************
@@ -120,12 +136,16 @@ public class IdentityManagerImpl implements IdentityManager
 
 
     //*****************************************
+    @Override
     public void init()
     {
         identityDataService = new IdentityDataServiceImpl( daoManager );
         sessionManager = new SessionManagerImpl( identityDataService );
         securityController = new SecurityControllerImpl();
         sessionManager.startSessionController();
+        jwtTokenCache =
+                CacheBuilder.newBuilder().expireAfterWrite( JWT_TOKEN_EXPIRATION_TIME, TimeUnit.SECONDS ).build();
+
 
         try
         {
@@ -139,14 +159,23 @@ public class IdentityManagerImpl implements IdentityManager
 
 
     //*****************************************
+    @Override
     public void destroy()
     {
+        jwtTokenCache.invalidateAll();
         sessionManager.stopSessionController();
     }
 
 
+    @Override
+    public TokenHelper buildTokenHelper( final String token ) throws TokenParseException
+    {
+        return new TokenHelperImpl( token );
+    }
+
+
     //*****************************************************
-    private void createDefaultUsers() throws SystemSecurityException
+    private void createDefaultUsers() throws SystemSecurityException, UserExistsException
     {
         if ( identityDataService.getAllUsers().isEmpty() )
         {
@@ -217,13 +246,14 @@ public class IdentityManagerImpl implements IdentityManager
 
             // editable roles -----------------------------
 
-            // pre-create env-owner role for regular users
-            role = createRole( ENV_OWNER_ROLE, UserType.REGULAR.getId() );
-
-            per = createPermission( PermissionObject.ENVIRONMENT_MANAGEMENT.getId(), PermissionScope.ALL_SCOPE.getId(),
-                    true, true, true, true );
-
-            assignRolePermission( role, per );
+            //            // pre-create env-owner role for regular users
+            //            role = createRole( ENV_OWNER_ROLE, UserType.REGULAR.getId() );
+            //
+            //            per = createPermission( PermissionObject.ENVIRONMENT_MANAGEMENT.getId(), PermissionScope
+            // .ALL_SCOPE.getId(),
+            //                    true, true, true, true );
+            //
+            //            assignRolePermission( role, per );
 
 
             //***** setPeer Owner By Default ***************
@@ -278,18 +308,83 @@ public class IdentityManagerImpl implements IdentityManager
     @Override
     public Session loginSystemUser()
     {
-        String sptoken = getSystemUserToken();
-        Session session = login( TOKEN_ID, sptoken );
+        return login( TOKEN_ID, getSystemUserToken() );
+    }
 
-        if ( session != null )
+
+    @PermitAll
+    @Override
+    public Session login( HttpServletRequest request, Message message )
+    {
+        try
         {
-            return session;
-        }
 
-        else
+            final String bearerToken = getBearerToken( request );
+            if ( bearerToken == null )
+            {
+                return null;
+            }
+
+            final TokenHelperImpl token = new TokenHelperImpl( bearerToken );
+            String subject = token.getSubject();
+            if ( subject == null )
+            {
+                return null;
+            }
+
+            Map<String, List<String>> headers = ( Map<String, List<String>> ) message.get( Message.PROTOCOL_HEADERS );
+            headers.put( "subutaiOrigin", Arrays.asList( token.getSubject() ) );
+
+            message.put( Message.PROTOCOL_HEADERS, headers );
+
+            return verifyJWTToken( bearerToken ) ? loginSystemUser() : null;
+        }
+        catch ( TokenParseException e )
         {
             return null;
         }
+    }
+
+
+    private String getBearerToken( HttpServletRequest request )
+    {
+        String authorization = request.getHeader( "Authorization" );
+        String result = null;
+        if ( authorization != null && authorization.startsWith( "Bearer" ) )
+        {
+            String[] splittedAuthString = authorization.split( "\\s" );
+            result = splittedAuthString.length == 2 ? splittedAuthString[1] : null;
+        }
+        return result;
+    }
+
+
+    @Override
+    public String issueJWTToken(String origin ) throws TokenCreateException
+
+    {
+        final String secret = UUID.randomUUID().toString();
+        DateTime issueDate = DateTime.now();
+        DateTime expireDate = issueDate.plusSeconds( JWT_TOKEN_EXPIRATION_TIME );
+        String token =
+                new TokenHelperImpl( TOKEN_ISSUER, origin, issueDate.toDate(), expireDate.toDate(), secret ).getToken();
+
+        this.jwtTokenCache.put( origin, secret );
+        return token;
+    }
+
+
+    @Override
+    public boolean verifyJWTToken( String token ) throws TokenParseException
+
+    {
+        final TokenHelperImpl signedToken = new TokenHelperImpl( token );
+        if ( signedToken.getExpirationTime().before( new Date() ) )
+        {
+            return false;
+        }
+        String secret = this.jwtTokenCache.getIfPresent( signedToken.getSubject() );
+        return secret != null && signedToken.verify( secret );
     }
 
 
@@ -495,6 +590,18 @@ public class IdentityManagerImpl implements IdentityManager
     public UserToken getUserToken( long userId )
     {
         return identityDataService.getUserToken( userId );
+    }
+
+
+    @Override
+    public UserToken updateTokenAndSession( long userId )
+    {
+        User user = identityDataService.getUser( userId );
+        UserToken userToken = createUserToken( user, null, null, null, TokenType.SESSION.getId(), null );
+
+        String sessionId = UUID.randomUUID() + "-" + System.currentTimeMillis();
+        sessionManager.startSession( sessionId, null, user );
+        return userToken;
     }
 
 
@@ -837,6 +944,18 @@ public class IdentityManagerImpl implements IdentityManager
     public void setUserPublicKey( long userId, String publicKeyASCII )
     {
 
+        Session session = getActiveSession();
+        if ( session != null )
+        {
+            TemplateManager templateManager = ServiceLocator.getServiceOrNull( TemplateManager.class );
+            if ( templateManager != null )
+            {
+                templateManager.resetTemplateCache();
+            }
+
+            session.setCdnToken( null );
+        }
+
         User user = identityDataService.getUser( userId );
 
         if ( user != null )
@@ -853,6 +972,19 @@ public class IdentityManagerImpl implements IdentityManager
                            .savePublicKeyRing( secId, SecurityKeyType.USER_KEY.getId(), publicKeyASCII );
             user.setFingerprint( securityManager.getKeyManager().getFingerprint( secId ) );
             identityDataService.updateUser( user );
+
+            //update cached user
+            Session activeSession = getActiveSession();
+            if ( activeSession != null )
+            {
+                User activeUser = activeSession.getUser();
+
+                if ( user.getId().equals( activeUser.getId() ) )
+                {
+                    activeUser.setFingerprint( user.getFingerprint() );
+                    activeUser.setSecurityKeyId( user.getSecurityKeyId() );
+                }
+            }
         }
     }
 
@@ -1218,7 +1350,8 @@ public class IdentityManagerImpl implements IdentityManager
     @RolesAllowed( { "Identity-Management|Write", "Identity-Management|Update" } )
     @Override
     public User createUser( String userName, String password, String fullName, String email, int type, int trustLevel,
-                            boolean generateKeyPair, boolean createUserDelegate ) throws SystemSecurityException
+                            boolean generateKeyPair, boolean createUserDelegate )
+            throws SystemSecurityException, UserExistsException
     {
         User user = new UserEntity();
 
@@ -1244,7 +1377,7 @@ public class IdentityManagerImpl implements IdentityManager
 
         if ( identityDataService.getUserByUsername( userName ) != null )
         {
-            throw new IllegalArgumentException( String.format( "User with name %s already exists", userName ) );
+            throw new UserExistsException( String.format( "User with name %s already exists", userName ) );
         }
 
         try
@@ -1269,6 +1402,7 @@ public class IdentityManagerImpl implements IdentityManager
             if ( generateKeyPair )
             {
                 String securityKeyId = user.getId() + "-" + UUID.randomUUID();
+                LOGGER.debug( "generating keypair for user {}: {}", user.getId(), user.getUserName() );
                 generateKeyPair( securityKeyId, SecurityKeyType.USER_KEY.getId() );
                 user.setSecurityKeyId( securityKeyId );
                 identityDataService.updateUser( user );
@@ -1278,8 +1412,11 @@ public class IdentityManagerImpl implements IdentityManager
             //***************************************
             if ( createUserDelegate )
             {
+                LOGGER.debug( "generating delegate for user {}: {}", user.getId(), user.getUserName() );
                 createUserDelegate( user, null, true );
             }
+
+            LOGGER.debug( "User {} created", userName );
         }
         catch ( Exception e )
         {
@@ -1442,6 +1579,70 @@ public class IdentityManagerImpl implements IdentityManager
     }
 
 
+    @Override
+    public void resetPassword( String username, String newPassword, String sign ) throws SystemSecurityException
+    {
+        User user = getUserByUsername( username );
+
+        if ( user == null )
+        {
+            throw new InvalidLoginException( "User not found" );
+        }
+
+        isValidPassword( user.getUserName(), newPassword );
+
+        try
+        {
+            String signToken =
+                    new String( securityManager.getEncryptionTool().extractClearSignContent( sign.getBytes() ) ).trim()
+                                                                                                                .toLowerCase();
+
+            if ( signTokensCache.getIfPresent( signToken ) == null )
+            {
+                throw new InvalidLoginException( "Sign token is invalid" );
+            }
+
+            if ( !securityManager.getEncryptionTool().verifyClearSign( sign.getBytes(),
+                    securityManager.getKeyManager().getPublicKeyRingByFingerprint( user.getFingerprint() ) ) )
+            {
+                throw new InvalidLoginException( "Sign is invalid" );
+            }
+
+            //remove token from cache
+            signTokensCache.invalidate( signToken );
+        }
+        catch ( PGPException e )
+        {
+            throw new SystemSecurityException( "Sign is invalid" );
+        }
+
+        try
+        {
+            String salt = SecurityUtil.generateSecureRandom();
+            newPassword = SecurityUtil.generateSecurePassword( newPassword, salt );
+            user.setSalt( salt );
+            user.setPassword( newPassword );
+            user.setValidDate( DateUtils.addDays( new Date( System.currentTimeMillis() ), IDENTITY_LIFETIME ) );
+            identityDataService.updateUser( user );
+        }
+        catch ( NoSuchAlgorithmException | NoSuchProviderException e )
+        {
+            throw new SystemSecurityException( "Internal error" );
+        }
+    }
+
+
+    @Override
+    public String getSignToken()
+    {
+        String token = UUID.randomUUID().toString().toLowerCase();
+
+        signTokensCache.put( token, true );
+
+        return token;
+    }
+
+
     /* *************************************************
      */
     @RolesAllowed( { "Identity-Management|Write", "Identity-Management|Update" } )
@@ -1515,16 +1716,15 @@ public class IdentityManagerImpl implements IdentityManager
      */
     private void isValidPassword( String userName, String password )
     {
-        if ( Strings.isNullOrEmpty( password ) || password.length() < 4 )
-        {
-            throw new IllegalArgumentException( "Password cannot be shorter than 4 characters" );
-        }
+        Preconditions.checkArgument( !( Strings.isNullOrEmpty( userName ) || userName.trim().isEmpty() ),
+                "Username can not be blank" );
 
-        if ( password.equalsIgnoreCase( userName ) || "password".equalsIgnoreCase( password ) || "system"
-                .equalsIgnoreCase( password ) )
-        {
-            throw new IllegalArgumentException( "Password doesn't match security measures" );
-        }
+        Preconditions.checkArgument( !( Strings.isNullOrEmpty( password ) || password.trim().length() < 4 ),
+                "Password cannot be shorter than 4 characters" );
+
+
+        Preconditions.checkArgument( !password.trim().equalsIgnoreCase( userName.trim() ),
+                "Password can not be the same as username" );
     }
 
 
@@ -1556,6 +1756,15 @@ public class IdentityManagerImpl implements IdentityManager
 
 
     @Override
+    public boolean isSystemUser()
+    {
+        User user = getActiveUser();
+
+        return user != null && SYSTEM_USERNAME.equalsIgnoreCase( user.getUserName() );
+    }
+
+
+    @Override
     public boolean isAdmin()
     {
         User user = getActiveUser();
@@ -1578,7 +1787,7 @@ public class IdentityManagerImpl implements IdentityManager
 
 
     /* *************************************************
-             */
+     */
     @PermitAll
     @Override
     public boolean isUserPermitted( User user, PermissionObject permObj, PermissionScope permScope,
@@ -1625,6 +1834,8 @@ public class IdentityManagerImpl implements IdentityManager
     @Override
     public Role createRole( String roleName, int roleType )
     {
+        LOGGER.debug( "Creating role {}", roleName );
+
         Preconditions.checkArgument( !Strings.isNullOrEmpty( roleName ), "Invalid role name" );
 
         if ( identityDataService.findRoleByName( roleName ) != null )
@@ -1643,7 +1854,19 @@ public class IdentityManagerImpl implements IdentityManager
 
         identityDataService.persistRole( role );
 
+        LOGGER.debug( "Role {} created", roleName );
+
         return role;
+    }
+
+
+    /* *************************************************
+     */
+    @RolesAllowed( { "Identity-Management|Read" } )
+    @Override
+    public Role findRoleByName( String roleName )
+    {
+        return identityDataService.findRoleByName( roleName );
     }
 
 
@@ -1824,6 +2047,10 @@ public class IdentityManagerImpl implements IdentityManager
     @Override
     public void extendTokenTime( UserToken token, int minutes )
     {
+        if ( minutes == 0 )
+        {
+            minutes = sessionManager.getSessionTimeout();
+        }
         token.setValidDate( DateUtils.addMinutes( new Date( System.currentTimeMillis() ), minutes ) );
         identityDataService.updateUserToken( token );
     }
@@ -1843,10 +2070,10 @@ public class IdentityManagerImpl implements IdentityManager
      */
     @RolesAllowed( { "Identity-Management|Write", "Identity-Management|Update" } )
     @Override
-    public void updateUserToken( String oldName, User user, String token, String secret, String issuer, int tokenType,
+    public void updateUserToken( String tokenId, User user, String token, String secret, String issuer, int tokenType,
                                  Date validDate )
     {
-        identityDataService.removeUserToken( oldName );
+        identityDataService.removeUserToken( tokenId );
         createUserToken( user, token, secret, issuer, tokenType, validDate );
     }
 

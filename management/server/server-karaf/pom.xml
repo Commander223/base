@@ -5,7 +5,7 @@
   <parent>
     <groupId>io.subutai</groupId>
     <artifactId>mgmt-server-parent</artifactId>
-    <version>4.0.12-SNAPSHOT</version>
+    <version>7.0.5-SNAPSHOT</version>
   </parent>
 
   <artifactId>subutai</artifactId>
@@ -16,6 +16,8 @@
 
   <properties>
     <assembly.directory>${project.build.directory}/assembly</assembly.directory>
+    <hubEnv>hub</hubEnv>
+    <maven.build.timestamp.format>yyyyMMddHHmmss</maven.build.timestamp.format>
   </properties>
 
   <dependencies>
@@ -315,13 +317,11 @@
                 <configuration>
                   <packageName>management-${git.branch}</packageName>
                   <packageVersion>${project.version}</packageVersion>
-                  <maintainerName>Subutai Social</maintainerName>
+                  <maintainerName>Subutai</maintainerName>
                   <packageDependencies>
                     <packageDependencies>openjdk-8-jre-headless</packageDependencies>
-                    <packageDependencies>subutai-dnsmasq</packageDependencies>
-                    <packageDependencies>subutai-influxdb</packageDependencies>
                     <packageDependencies>curl</packageDependencies>
-                    <packageDependencies>gorjun</packageDependencies>
+                    <packageDependencies>influxdb</packageDependencies>
                   </packageDependencies>
                   <excludeAllArtifacts>true</excludeAllArtifacts>
                 </configuration>

@@ -2,35 +2,35 @@
 <html ng-app="subutai-app" ng-controller="SubutaiController as subutaiController">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link href="favicon.ico" rel="icon" type="image/x-icon" />
-	<!--<base href="/">-->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="favicon.ico" rel="icon" type="image/x-icon"/>
+  <!--<base href="/">-->
 
-    <!--<title ng-bind="subutaiController.peerName"></title>-->
-	<title>Subutai Social</title>
+  <!--<title ng-bind="subutaiController.peerName"></title>-->
+  <title>Subutai</title>
 
-	<!--CSS Libs-->
-	<link rel="stylesheet" href="css/libs/font-awesome.min.css"/>
-	<link rel="stylesheet" href="css/libs/normalize.css"/>
-	<link rel="stylesheet" href="css/libs/sweetalert.css">
-	<link rel="stylesheet" href="css/libs/ngDialog.css">
-	<link rel="stylesheet" href="css/libs/nouislider.min.css">
-	<link rel="stylesheet" href="css/libs/datatables.css">
-	<link rel="stylesheet" href="css/libs/angular-tooltips.css">
-	<link rel="stylesheet" href="css/libs/vtortola.ng-terminal.css">
-	<link rel="stylesheet" href="css/libs/ng-tags-input.min.css">
-	<link rel="stylesheet" href="css/libs/nv.d3.css">
-	<link rel="stylesheet" href="css/libs/loading-bar.css">
-	<link rel="stylesheet" href="css/libs/angular-ui-switch.css">
-	<link rel="stylesheet" href="css/libs/joint.css">
-	<link rel="stylesheet" href="css/libs/perfect-scrollbar.css">
-	<!--CSS-->
+  <!--CSS Libs-->
+  <link rel="stylesheet" href="css/libs/font-awesome.min.css"/>
+  <link rel="stylesheet" href="css/libs/normalize.css"/>
+  <link rel="stylesheet" href="css/libs/sweetalert.css">
+  <link rel="stylesheet" href="css/libs/ngDialog.css">
+  <link rel="stylesheet" href="css/libs/nouislider.min.css">
+  <link rel="stylesheet" href="css/libs/datatables.css">
+  <link rel="stylesheet" href="css/libs/angular-tooltips.css">
+  <link rel="stylesheet" href="css/libs/vtortola.ng-terminal.css">
+  <link rel="stylesheet" href="css/libs/ng-tags-input.min.css">
+  <link rel="stylesheet" href="css/libs/nv.d3.css">
+  <link rel="stylesheet" href="css/libs/loading-bar.css">
+  <link rel="stylesheet" href="css/libs/angular-ui-switch.css">
+  <link rel="stylesheet" href="css/libs/joint.css">
+  <link rel="stylesheet" href="css/libs/perfect-scrollbar.css">
+  <!--CSS-->
 
-	<link rel="stylesheet" href="css/style.css"/>
+  <link rel="stylesheet" href="css/style.css"/>
 
-    <!-- DIRS -->
-    <!-- END DIRS -->
+  <!-- DIRS -->
+  <!-- END DIRS -->
 </head>
 
 <body class="{{ subutaiController.bodyClass }}">
@@ -45,6 +45,7 @@
 <script src="scripts/libs/nprogress.js"></script>
 <script src="scripts/libs/sweetalert.min.js"></script>
 <script src="scripts/libs/datatables.min.js"></script>
+<script src="scripts/libs/lscache.min.js"></script>
 <script src="assets/js/plugins/Chart.js"></script>
 <script src="assets/js/plugins/moment.min.js"></script>
 <script src="assets/js/plugins/d3.js"></script>
@@ -75,13 +76,10 @@
 
 <script src="subutai-app/tracker/service.js"></script>
 <script src="subutai-app/identity/service.js"></script>
+<script src="subutai-app/templates/service.js"></script>
 <script src="subutai-app/accountSettings/controller.js"></script>
 
 <script src="subutai-app/subutai-app.js"></script>
-
-<script src = "subutai-app/bazaar/partials/js/modernizr.custom.js"></script>
-<script src="subutai-app/bazaar/partials/js/classie.js"></script>
-<script src="subutai-app/bazaar/partials/js/uiProgressButton.js"></script>
 
 <script src="subutai-app/common/directives/nav-menu/nav-menu.js"></script>
 <!-- ENDBASE -->

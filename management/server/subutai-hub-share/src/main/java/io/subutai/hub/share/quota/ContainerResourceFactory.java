@@ -5,6 +5,7 @@ import io.subutai.hub.share.resource.ByteValueResource;
 import io.subutai.hub.share.resource.ContainerResourceType;
 import io.subutai.hub.share.resource.NumericValueResource;
 import io.subutai.hub.share.resource.ResourceValue;
+import io.subutai.hub.share.resource.StringValueResource;
 
 
 /**
@@ -23,18 +24,37 @@ public class ContainerResourceFactory
     {
         switch ( containerResourceType )
         {
+            case NET:
+                return new ContainerNetResource( ( NumericValueResource ) resourceValue );
             case CPU:
                 return new ContainerCpuResource( ( NumericValueResource ) resourceValue );
+            case CPUSET:
+                return new ContainerCpuSetResource( ( StringValueResource ) resourceValue );
             case RAM:
                 return new ContainerRamResource( ( ByteValueResource ) resourceValue );
-            case HOME:
-                return new ContainerHomeResource( ( ByteValueResource ) resourceValue );
-            case OPT:
-                return new ContainerOptResource( ( ByteValueResource ) resourceValue );
-            case VAR:
-                return new ContainerVarResource( ( ByteValueResource ) resourceValue );
-            case ROOTFS:
-                return new ContainerRootfsResource( ( ByteValueResource ) resourceValue );
+            case DISK:
+                return new ContainerDiskResource( ( ByteValueResource ) resourceValue );
+            default:
+                return null;
+        }
+    }
+
+
+    public static ContainerResource createContainerResource( ContainerResourceType containerResourceType,
+                                                             String resourceValue )
+    {
+        switch ( containerResourceType )
+        {
+            case NET:
+                return new ContainerNetResource( resourceValue );
+            case CPU:
+                return new ContainerCpuResource( resourceValue );
+            case CPUSET:
+                return new ContainerCpuSetResource( resourceValue );
+            case RAM:
+                return new ContainerRamResource( resourceValue );
+            case DISK:
+                return new ContainerDiskResource( resourceValue );
             default:
                 return null;
         }

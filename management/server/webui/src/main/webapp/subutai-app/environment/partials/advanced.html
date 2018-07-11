@@ -1,4 +1,5 @@
-<div class="b-cloud" ng-controller="AdvancedEnvironmentCtrl as advEnvCtrl" ondragover="return dragOver(event)">
+<div class="b-cloud" ng-controller="AdvancedEnvironmentCtrl as advEnvCtrl" ondragover="return dragOver(event)"
+     ng-init="advEnvCtrl.loadPrivateTemplates()">
   <div class="b-cloud__tools">
     <div class="b-cloud-tools">
       <div class="b-tabs-menu b-tabs-menu_cloud-env">
@@ -23,26 +24,25 @@
         <div class="b-tools-menu__inpit">
           <select class="b-search-input" ng-model="advEnvCtrl.templatesType"
                   ng-change="advEnvCtrl.getFilteredTemplates()">
-            <option value="all">All</option>
             <option ng-repeat="(templatesType, templateList) in advEnvCtrl.templates" value="{{ templatesType }}">
               {{ templatesType }} ({{ templateList.length }})
             </option>
           </select>
         </div>
         <ul>
-          <li ng-repeat="template in advEnvCtrl.templatesList  | filter:{'name' : searchTemplate} | orderBy: 'name'"
+          <li ng-repeat="template in advEnvCtrl.templatesList | filter:{'name' : searchTemplate} | orderBy: 'name' track by $index"
               data-template="{{ template.name }}"
-              title="Version: {{ template.version }} Size: {{ template.size }} Parent: {{ template.parent }} Owners: {{template.owner}}">
+              title="Version: {{ template.version }} Size: {{ environmentViewCtrl.humanFileSize(template.size, true) }} Parent: {{ template.parent }} Owner: {{template.owner}}">
 					<span class="b-tools-menu__item">
 						<span class="b-cloud-item">
 							<img
                   ng-src="assets/templates/{{ template.name }}.jpg"
                   alt="{{ template.name }}"
-                  onError="this.onerror=null;this.src='assets/templates/no-image.jpg';">
+                  on-error-src="assets/templates/no-image.jpg">
 						</span>
 						<span class="b-cloud-item-text">{{ template.name }}</span>
 					</span>
-            <div class="b-dragAndDrop-item"
+            <div class="b-dragAndDrop-item" onclick="clickIt(event)"
                  ondragstart="startDrag(event)" ondragend="endtDrag(event)" draggable="true"
                  data-template="{{ template.name }}"
                  data-template-id="{{ template.id }}">
@@ -57,13 +57,10 @@
           <li ng-repeat="(peerId, peersResources) in advEnvCtrl.peerIds"
               ng-click="advEnvCtrl.showResources(peerId, peersResources.resourceHosts, $index)">
 					<span class="b-tools-menu__item" class="b-cloud-item-text g-margin-bottom-half">
-						Peer {{$index + 1}}
+						Peer {{peerId.substr(peerId.length - 3)}}
 					</span>
 
             <div class="b-progress__cloud">
-              <!--<div class="b-progress-cloud g-margin-bottom-half">
-              <div class="b-progress-cloud-fill" style="width: 0%"></div>
-              </div>-->
               <div class="b-progress-text">
                 <span class="g-text-blue">{{ peersResources.name }}</span>
               </div>
@@ -89,7 +86,8 @@
                 ng-click="advEnvCtrl.addResource2Build(resourceHost.id, advEnvCtrl.currentPeer, $index)">
               <div class="g-margin-bottom">
 							<span class="b-cloud-item-resource-name">
-								RH{{$index + 1}} <span ng-show="resourceHost.isManagement"> [MH]</span>
+								RH {{resourceHost.id.substr(resourceHost.length - 3)}} <span
+                  ng-show="resourceHost.isManagement"> [MH]</span>
 							</span>
                 <span class="b-progress-text ">({{resourceHost.hostname}})</span>
               </div>
@@ -157,46 +155,10 @@
 					<span class="b-icon b-icon_plugins b-icon_30 js-call-plugins-popup"
                 tooltips
                 tooltip-side="right"
-                tooltip-template='Plugins'>
+                tooltip-template='CDN token'>
 					</span>
             <div class="b-template-settings b-template-settings_plugins js-environment-plugins-menu">
-              <div class="header">Choose plugin</div>
-              <div class="b-template-settings__body">
-                <div class="b-environments-plugin__list js-scrollbar">
-                  <ul class="b-environments-plugin-list">
-                    <li class="b-environments-plugin-list__item" ng-repeat="plugin in advEnvCtrl.filteredPlugins">
-                      <a ui-sref="{{ plugin.name.toLowerCase() }}" class="b-cloud-item-link b-btn b-btn_white">goto</a>
-                      <span class="b-tools-menu__item"
-                            ng-click="advEnvCtrl.selectPlugin(plugin)">
-
-											<i class="fa b-cloud-item-checkbox"
-                         aria-hidden="true"
-                         ng-class="plugin.selected ? 'fa-check-square-o' : 'fa-square-o'">
-											</i>
-
-											<span class="b-cloud-item">
-												<img
-                            ng-src="/{{ plugin.img }}"
-                            alt="{{ plugin.name }}"
-                            onError="this.onerror=null;this.src='assets/templates/no-image.jpg';">
-											</span>
-
-											<span class="b-cloud-item-text">{{ plugin.name }}</span>
-										</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              <div class="footer">
-
-                <button type="button"
-                        class="b-btn b-btn_green"
-                        ng-click="advEnvCtrl.setTemplatesByPlugin()"
-                        ng-disabled="advEnvCtrl.filteredPlugins | isEmpty:advEnvCtrl.isEditing ">
-                  Use
-                </button>
-
-              </div>
+              <div class="header">{{ advEnvCtrl.getCdnToken() }}</div>
             </div>
           </div>
 
@@ -204,11 +166,12 @@
             <div class="header"></div>
 
             <div class="b-template-settings__coll">
-              <form ng-submit="advEnvCtrl.addSettingsToTemplate(templateSettings)">
+              <form
+                  ng-submit="advEnvCtrl.addSettingsToTemplate(templateSettings, environmentViewCtrl.containersTypeInfo[templateSettings.quotaSize])">
                 <div class="body">
                   <div class="b-form-group">
-                    <div class="b-form-group__label">Container name</div>
-                    <input type="text"
+                    <div class="b-form-group__label">Container hostname</div>
+                    <input type="text" ng-focus="onTextFocus($event)"
                            id="js-container-name"
                            class="b-form-input b-form-input_full"
                            ng-model="templateSettings.containerName" required>
@@ -217,7 +180,7 @@
                     <div class="b-form-group__label">Select quota size</div>
                     <select class="b-form-input b-form-input_full"
                             id="js-container-size"
-                            ng-init="templateSettings.quotaSize = 'SMALL'"
+                            ng-init="templateSettings.quotaSize = 'TINY'"
                             ng-model="templateSettings.quotaSize">
                       <option
                           ng-repeat="type in environmentViewCtrl.containersType"
@@ -233,7 +196,7 @@
               </form>
             </div>
 
-            <div class="b-template-settings__coll">
+            <div class="b-template-settings__coll" ng-if="templateSettings.quotaSize !== 'CUSTOM'">
               <p class="b-template-settings__text">
                 {{ templateSettings.quotaSize }}: <br>
                 <span ng-repeat="(key, value) in environmentViewCtrl.containersTypeInfo[templateSettings.quotaSize]">
@@ -241,6 +204,37 @@
 						</span>
               </p>
             </div>
+
+            <!--CUSTOM-->
+            <div class="b-template-settings__coll b-template-settings__coll_quota"
+                 ng-if="templateSettings.quotaSize == 'CUSTOM'">
+              <p class="b-template-settings__text">CUSTOM:</p>
+              <div class="b-template-settings__text b-template-settings__text_input">
+                <label for="js-quotasize-custom-cpu" class="b-form-label b-form-label_margin_r">cpu (%):</label>
+                <input type="number"
+                       id="js-quotasize-custom-cpu"
+                       class="b-form-input b-form-input_custom-quota"
+                       ng-model="templateSettings.cpuQuota" required>
+                <div class="clear"></div>
+              </div>
+              <div class="b-template-settings__text b-template-settings__text_input">
+                <label for="js-quotasize-custom-ram" class="b-form-label b-form-label_margin_r">ram (MB):</label>
+                <input type="number"
+                       id="js-quotasize-custom-ram"
+                       class="b-form-input b-form-input_custom-quota"
+                       ng-model="templateSettings.ramQuota" required>
+                <div class="clear"></div>
+              </div>
+              <div class="b-template-settings__text b-template-settings__text_input">
+                <label for="js-quotasize-custom-disk" class="b-form-label b-form-label_margin_r">disk (GB):</label>
+                <input type="number"
+                       id="js-quotasize-custom-disk"
+                       class="b-form-input b-form-input_custom-quota"
+                       ng-model="templateSettings.diskQuota" required>
+                <div class="clear"></div>
+              </div>
+            </div>
+            <!--CUSTOM-->
           </div>
 
         </div>
@@ -259,7 +253,7 @@
         </div>
       </div>
       <div class="b-cloud-space__table">
-        <table datatable="ng"
+        <table id="envTable" datatable="ng"
                ng-init="environmentViewCtrl.initDataTable()"
                dt-options="environmentViewCtrl.dtOptionsInstallTable"
                dt-column-defs="environmentViewCtrl.dtColumnDefsInstallTable"
@@ -287,7 +281,7 @@
             <td class="b-word-break-all">
               <a tooltips
                  ui-sref="containers({ environmentId: environment.id })"
-                 tooltip-template='<span class="b-nowrap">ID: {{ environment.id }}. Source: {{ environment.dataSource == "hub" ? "Hub" : "Local" }}</span>'
+                 tooltip-template='<span class="b-nowrap">ID: {{ environment.id }}. Source: {{ environment.dataSource }}</span>'
                  tooltip-side="right"
                  env-data-source="{{ environment.dataSource }}">
                 {{ environment.name }}

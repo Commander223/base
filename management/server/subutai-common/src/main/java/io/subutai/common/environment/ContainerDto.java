@@ -3,15 +3,17 @@ package io.subutai.common.environment;
 
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.subutai.common.host.ContainerHostState;
-import io.subutai.common.peer.ContainerSize;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 /**
  * Container DTO
  */
+@JsonIgnoreProperties( ignoreUnknown = true )
 public class ContainerDto
 {
     @JsonProperty( "id" )
@@ -40,6 +42,11 @@ public class ContainerDto
     private boolean local;
     @JsonProperty( "state" )
     private ContainerHostState state;
+    @JsonProperty( "rhId" )
+    private String rhId;
+    @JsonProperty( "quota" )
+    private ContainerQuotaDto quota;
+
 
     // Where environment of container created: subutai, hub
     @JsonProperty( "dataSource" )
@@ -59,7 +66,7 @@ public class ContainerDto
                          @JsonProperty( "dataSource" ) String dataSource,
                          @JsonProperty( "state" ) ContainerHostState state,
                          @JsonProperty( "templateId" ) String templateId,
-                         @JsonProperty( "containerName" ) String containerName )
+                         @JsonProperty( "containerName" ) String containerName, @JsonProperty( "rhId" ) String rhId )
     {
         this.id = id;
         this.environmentId = environmentId;
@@ -76,6 +83,7 @@ public class ContainerDto
         this.dataSource = dataSource;
         this.state = state;
         this.containerName = containerName;
+        this.rhId = rhId;
     }
 
 
@@ -85,21 +93,9 @@ public class ContainerDto
     }
 
 
-    public void setId( final String id )
-    {
-        this.id = id;
-    }
-
-
     public String getEnvironmentId()
     {
         return environmentId;
-    }
-
-
-    public void setEnvironmentId( final String environmentId )
-    {
-        this.environmentId = environmentId;
     }
 
 
@@ -121,12 +117,6 @@ public class ContainerDto
     }
 
 
-    public void setIp( final String ip )
-    {
-        this.ip = ip;
-    }
-
-
     public String getTemplateName()
     {
         return templateName;
@@ -145,21 +135,9 @@ public class ContainerDto
     }
 
 
-    public void setTemplateId( final String templateId )
-    {
-        this.templateId = templateId;
-    }
-
-
     public ContainerSize getType()
     {
         return type;
-    }
-
-
-    public void setType( final ContainerSize type )
-    {
-        this.type = type;
     }
 
 
@@ -169,21 +147,9 @@ public class ContainerDto
     }
 
 
-    public void setArch( final String arch )
-    {
-        this.arch = arch;
-    }
-
-
     public Set<String> getTags()
     {
         return tags;
-    }
-
-
-    public void setTags( final Set<String> tags )
-    {
-        this.tags = tags;
     }
 
 
@@ -193,21 +159,9 @@ public class ContainerDto
     }
 
 
-    public void setPeerId( final String peerId )
-    {
-        this.peerId = peerId;
-    }
-
-
     public String getHostId()
     {
         return hostId;
-    }
-
-
-    public void setHostId( final String hostId )
-    {
-        this.hostId = hostId;
     }
 
 
@@ -217,33 +171,15 @@ public class ContainerDto
     }
 
 
-    public void setLocal( final boolean local )
-    {
-        this.local = local;
-    }
-
-
     public ContainerHostState getState()
     {
         return state;
     }
 
 
-    public void setState( final ContainerHostState state )
-    {
-        this.state = state;
-    }
-
-
     public String getDataSource()
     {
         return dataSource;
-    }
-
-
-    public void setDataSource( final String dataSource )
-    {
-        this.dataSource = dataSource;
     }
 
 
@@ -256,5 +192,23 @@ public class ContainerDto
     public void setContainerName( final String containerName )
     {
         this.containerName = containerName;
+    }
+
+
+    public String getRhId()
+    {
+        return rhId;
+    }
+
+
+    public ContainerQuotaDto getQuota()
+    {
+        return quota;
+    }
+
+
+    public void setQuota( final ContainerQuotaDto quota )
+    {
+        this.quota = quota;
     }
 }

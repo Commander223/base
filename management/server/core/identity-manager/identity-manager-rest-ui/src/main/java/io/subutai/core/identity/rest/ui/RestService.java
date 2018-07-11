@@ -15,6 +15,8 @@ import javax.ws.rs.core.Response;
 
 public interface RestService
 {
+
+
     /** Users ***********************************************/
 
     @GET
@@ -153,4 +155,9 @@ public interface RestService
     @Path( "/is-admin" )
     @Produces( { MediaType.TEXT_PLAIN } )
     Response isAdmin();
+
+    @GET
+    @Path( "/has-environments/{userId}" )
+    @Produces( { MediaType.TEXT_PLAIN } )
+    Response hasEnvironments( @PathParam( "userId" ) Long userId );
 }

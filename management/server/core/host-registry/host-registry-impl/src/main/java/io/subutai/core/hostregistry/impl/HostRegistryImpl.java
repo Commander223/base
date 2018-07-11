@@ -20,13 +20,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.RemovalListener;
+import com.google.common.cache.RemovalNotification;
 import com.google.common.collect.Sets;
 
 import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.host.HostInfo;
-import io.subutai.common.host.HostInterface;
-import io.subutai.common.host.NullHostInterface;
 import io.subutai.common.host.ResourceHostInfo;
+import io.subutai.common.host.ResourceHostInfoModel;
 import io.subutai.common.metric.QuotaAlertValue;
 import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
@@ -50,14 +51,13 @@ public class HostRegistryImpl implements HostRegistry
 
     private static final String HOST_NOT_CONNECTED_MSG = "Host %s is not connected";
     //timeout after which host expires in seconds
-    private static final int HOST_EXPIRATION_SEC = 30;
+
     private static final long HOST_UPDATER_INTERVAL_SEC = 10;
 
-    protected Set<HostListener> hostListeners =
-            Collections.newSetFromMap( new ConcurrentHashMap<HostListener, Boolean>() );
-    protected ScheduledExecutorService hostUpdater = Executors.newSingleThreadScheduledExecutor();
-    protected ExecutorService threadPool = Executors.newCachedThreadPool();
-    protected Cache<String, ResourceHostInfo> hosts;
+    Set<HostListener> hostListeners = Collections.newSetFromMap( new ConcurrentHashMap<HostListener, Boolean>() );
+    ScheduledExecutorService hostUpdater = Executors.newSingleThreadScheduledExecutor();
+    ExecutorService threadPool = Executors.newCachedThreadPool();
+    Cache<String, ResourceHostInfo> hosts;
 
     IPUtil ipUtil = new IPUtil();
 
@@ -251,16 +251,28 @@ public class HostRegistryImpl implements HostRegistry
     }
 
 
-    protected void registerHost( ResourceHostInfo info, Set<QuotaAlertValue> alerts )
+    void registerHost( ResourceHostInfo newRhInfo, Set<QuotaAlertValue> alerts )
     {
-        Preconditions.checkNotNull( info, "Info is null" );
+        Preconditions.checkNotNull( newRhInfo, "Info is null" );
 
-        hosts.put( info.getId(), info );
+        ResourceHostInfo oldRhInfo = hosts.getIfPresent( newRhInfo.getId() );
+
+        if ( oldRhInfo != null )
+        {
+            ( ( ResourceHostInfoModel ) newRhInfo )
+                    .setDateCreated( ( ( ResourceHostInfoModel ) oldRhInfo ).getDateCreated() );
+        }
+        else
+        {
+            ( ( ResourceHostInfoModel ) newRhInfo ).setDateCreated( System.currentTimeMillis() );
+        }
+
+        hosts.put( newRhInfo.getId(), newRhInfo );
 
         //notify listeners
         for ( HostListener listener : hostListeners )
         {
-            threadPool.execute( new HostNotifier( listener, info, alerts ) );
+            threadPool.execute( new HostNotifier( listener, oldRhInfo, newRhInfo, alerts ) );
         }
     }
 
@@ -269,6 +281,19 @@ public class HostRegistryImpl implements HostRegistry
     {
         hosts = CacheBuilder.newBuilder().
                 expireAfterAccess( HOST_EXPIRATION_SEC, TimeUnit.SECONDS ).
+                                    removalListener( new RemovalListener<String, ResourceHostInfo>()
+                                    {
+                                        @Override
+                                        public void onRemoval(
+                                                final RemovalNotification<String, ResourceHostInfo> notification )
+                                        {
+                                            for ( HostListener listener : hostListeners )
+                                            {
+                                                threadPool.execute(
+                                                        new HostNotifier( listener, notification.getValue() ) );
+                                            }
+                                        }
+                                    } ).
                                     build();
 
         hostUpdater.scheduleWithFixedDelay( new Runnable()
@@ -282,7 +307,17 @@ public class HostRegistryImpl implements HostRegistry
     }
 
 
-    protected void updateHosts()
+    public void dispose()
+    {
+        hosts.invalidateAll();
+
+        threadPool.shutdown();
+
+        hostUpdater.shutdown();
+    }
+
+
+    void updateHosts()
     {
         try
         {
@@ -301,17 +336,7 @@ public class HostRegistryImpl implements HostRegistry
             //we need to re-request heartbeat from agent based on cache entries
             if ( cachedResourceHosts.size() > registeredResourceHosts.size() )
             {
-                for ( final ResourceHostInfo resourceHostInfo : cachedResourceHosts )
-                {
-                    threadPool.execute( new Runnable()
-                    {
-                        @Override
-                        public void run()
-                        {
-                            requestHeartbeat( resourceHostInfo );
-                        }
-                    } );
-                }
+                requestHeartbeats( cachedResourceHosts );
 
                 return;
             }
@@ -336,17 +361,7 @@ public class HostRegistryImpl implements HostRegistry
 
                     allHosts.addAll( cachedResourceHosts );
 
-                    for ( final ResourceHostInfo resourceHostInfo : allHosts )
-                    {
-                        threadPool.execute( new Runnable()
-                        {
-                            @Override
-                            public void run()
-                            {
-                                requestHeartbeat( resourceHostInfo );
-                            }
-                        } );
-                    }
+                    requestHeartbeats( allHosts );
 
                     return;
                 }
@@ -369,7 +384,23 @@ public class HostRegistryImpl implements HostRegistry
     }
 
 
-    protected void checkAndUpdateHosts( Set<ResourceHostInfo> resourceHosts )
+    private void requestHeartbeats( Set<ResourceHostInfo> resourceHosts )
+    {
+        for ( final ResourceHostInfo resourceHostInfo : resourceHosts )
+        {
+            threadPool.execute( new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    requestHeartbeat( resourceHostInfo );
+                }
+            } );
+        }
+    }
+
+
+    void checkAndUpdateHosts( Set<ResourceHostInfo> resourceHosts )
     {
         for ( final ResourceHostInfo resourceHostInfo : resourceHosts )
         {
@@ -385,7 +416,7 @@ public class HostRegistryImpl implements HostRegistry
     }
 
 
-    protected void updateHost( ResourceHostInfo resourceHostInfo )
+    void updateHost( ResourceHostInfo resourceHostInfo )
     {
         WebClient webClient = null;
         Response response = null;
@@ -426,61 +457,37 @@ public class HostRegistryImpl implements HostRegistry
     }
 
 
-    protected void requestHeartbeat( ResourceHostInfo resourceHostInfo )
+    void requestHeartbeat( ResourceHostInfo resourceHostInfo )
     {
-        getWebClient( resourceHostInfo, "heartbeat" ).get();
+        WebClient webClient = null;
+        Response response = null;
+
+        try
+        {
+            webClient = getWebClient( resourceHostInfo, "heartbeat" );
+            response = webClient.get();
+        }
+        catch ( Exception e )
+        {
+            LOG.warn( "Error requesting heartbeat: {}", e.getMessage() );
+        }
+        finally
+        {
+            RestUtil.close( response, webClient );
+        }
     }
 
 
-    protected WebClient getWebClient( ResourceHostInfo resourceHostInfo, String action )
+    WebClient getWebClient( ResourceHostInfo resourceHostInfo, String action )
     {
         return RestUtil.createWebClient(
-                String.format( "http://%s:%d/%s", getResourceHostIp( resourceHostInfo ), Common.DEFAULT_AGENT_PORT,
-                        action ), 3000, 5000, 1 );
+                String.format( "http://%s:%d/%s", resourceHostInfo.getAddress(), Common.DEFAULT_AGENT_PORT, action ),
+                3000, 5000, 1 );
     }
 
 
-    @Override
-    public String getResourceHostIp( ResourceHostInfo resourceHostInfo )
-    {
-
-        HostInterface hostInterface;
-
-        if ( resourceHostInfo instanceof ResourceHost )
-        {
-            Set<HostInterface> hostInterfaces = ( ( ResourceHost ) resourceHostInfo ).getSavedHostInterfaces();
-
-            hostInterface = ipUtil.findAddressableIface( hostInterfaces, resourceHostInfo.getId() );
-        }
-        else
-        {
-            Set<HostInterface> hostInterfaces = Sets.newHashSet();
-            hostInterfaces.addAll( resourceHostInfo.getHostInterfaces().getAll() );
-
-            hostInterface = ipUtil.findAddressableIface( hostInterfaces, resourceHostInfo.getId() );
-        }
-
-        if ( hostInterface instanceof NullHostInterface )
-        {
-            throw new IllegalStateException( "Network interface not found" );
-        }
-
-        return hostInterface.getIp();
-    }
-
-
-    protected LocalPeer getLocalPeer()
+    LocalPeer getLocalPeer()
     {
         return ServiceLocator.getServiceOrNull( LocalPeer.class );
-    }
-
-
-    public void dispose()
-    {
-        hosts.invalidateAll();
-
-        threadPool.shutdown();
-
-        hostUpdater.shutdown();
     }
 }

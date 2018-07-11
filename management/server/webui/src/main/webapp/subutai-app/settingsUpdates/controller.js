@@ -9,32 +9,41 @@ SettingsUpdatesCtrl.$inject = ['$scope', '$rootScope', 'SettingsUpdatesSrv', 'Sw
 function SettingsUpdatesCtrl($scope, $rootScope, SettingsUpdatesSrv, SweetAlert, DTOptionsBuilder, DTColumnBuilder, $resource, $compile) {
 	var vm = this;
 	vm.config = {isUpdatesAvailable: "waiting"};
-	vm.getHistory = [];
 	vm.activeTab = 'update';
-	vm.updateText = 'Checking...';
 	vm.updateInProgress = false;
-
-	checkActiveUpdate();
-    getHistoryData();
+	vm.checkActiveUpdate = checkActiveUpdate;
+    vm.update = update;
 
 	function checkActiveUpdate(){
+
+	    vm.updateText = 'Checking...';
 
 		LOADING_SCREEN();
 
 		SettingsUpdatesSrv.isUpdateInProgress().success(function (data){
-			 if (data == true || data == 'true') {
-				LOADING_SCREEN("none");
-
-				vm.updateInProgress = true;
-				vm.updateText = 'Update is in progress';
-				removeUpdateMessage();
-
-				setTimeout(function() {checkActiveUpdate();}, 30000);
-			 }else{
-				getConfig();
-			 }
+             if (data == true || data == 'true') {
+                LOADING_SCREEN("none");
+                vm.updateInProgress = true;
+                vm.updateText = 'Update is in progress';
+                removeUpdateMessage();
+                scheduleUpdateCheck();
+             }else{
+               vm.updateInProgress = false;
+    		   SettingsUpdatesSrv.isEnvironmentWorkflowInProgress().success(function (data){
+    			 if (data == true || data == 'true') {
+    				LOADING_SCREEN("none");
+    				vm.updateText = 'Environment workflow is in progress';
+    				scheduleUpdateCheck();
+    			 }else{
+    				getConfig();
+    			 }
+    		   }).error(function (error) {
+                  scheduleUpdateCheck();
+               });
+             }
+		     reloadHistory();
 		}).error(function (error) {
-            setTimeout(function() {checkActiveUpdate();}, 30000);
+            scheduleUpdateCheck();
         });
 	}
 
@@ -79,25 +88,9 @@ function SettingsUpdatesCtrl($scope, $rootScope, SettingsUpdatesSrv, SweetAlert,
 		$compile(angular.element(row).contents())($scope);
 	}
 
-	/*function dateHTML(data, type, full, meta) {
-		return moment( data ).format('MMM Do YYYY HH:mm:ss');
-	}*/
-
 	function dateHTML(data, type, full, meta) {
-		return '<div>' + moment( data ).format('MMM Do YYYY HH:mm:ss') + '</div>';
+		return '<div>' + moment( data ).format('YYYY-MM-DD HH:mm:ss') + '</div>';
 	}	
-
-	vm.update = update;
-	vm.getHistoryData = getHistoryData;
-
-	function getHistoryData() {
-		SettingsUpdatesSrv.getHistory().success(function (data) {
-			vm.getHistory = data;
-			console.log(vm.getHistory);
-		}).error(function(error) {
-			SweetAlert.swal("ERROR!", error, "error");
-		});
-	}
 
 	function removeUpdateMessage() {
 		var notifications = sessionStorage.getItem('notifications');
@@ -122,6 +115,7 @@ function SettingsUpdatesCtrl($scope, $rootScope, SettingsUpdatesSrv, SweetAlert,
 	function update() {
 		LOADING_SCREEN();
 		vm.updateText = 'Please wait, update is in progress. System will restart automatically';
+		vm.updateInProgress = true;
 		SettingsUpdatesSrv.update(vm.config).success(function (data, status) {
 			LOADING_SCREEN('none');
 			sessionStorage.removeItem('notifications');
@@ -130,9 +124,19 @@ function SettingsUpdatesCtrl($scope, $rootScope, SettingsUpdatesSrv, SweetAlert,
 			}
 			checkActiveUpdate();
 		}).error(function (error) {
-			setTimeout(function() {checkActiveUpdate();}, 30000);
+			scheduleUpdateCheck();
 		});
 
 		removeUpdateMessage();
 	}
+
+	var lastScheduledCheck;
+	function scheduleUpdateCheck(){
+	    clearTimeout(lastScheduledCheck);
+	    lastScheduledCheck = setTimeout(function() {checkActiveUpdate();}, 30000);
+	}
+
+    function reloadHistory(){
+        vm.dtInstance.reloadData(null, false);
+    }
 }

@@ -122,12 +122,11 @@ public class RestServiceImpl implements RestService
 
 
     @Override
-    public Response setNetworkSettings( final String publicUrl, final String publicSecurePort, final String startRange,
-                                        final String endRange )
+    public Response setNetworkSettings( final String publicUrl, final String publicSecurePort, boolean userRhIp )
     {
         try
         {
-            systemManager.setNetworkSettings( publicUrl, publicSecurePort, startRange, endRange );
+            systemManager.setNetworkSettings( publicUrl, publicSecurePort, userRhIp );
         }
         catch ( ConfigurationException e )
         {
@@ -142,9 +141,9 @@ public class RestServiceImpl implements RestService
 
 
     @Override
-    public Response getAdvancedSettings()
+    public Response getAdvancedSettings( String logFile )
     {
-        AdvancedSettings pojo = systemManager.getAdvancedSettings();
+        AdvancedSettings pojo = systemManager.getAdvancedSettings( logFile );
 
         String advancedSettingsInfo = JsonUtil.GSON.toJson( pojo );
 
@@ -193,6 +192,20 @@ public class RestServiceImpl implements RestService
     public Response isUpdateInProgress()
     {
         return Response.status( Response.Status.OK ).entity( systemManager.isUpdateInProgress() ).build();
+    }
+
+
+    @Override
+    public Response isEnvironmentWorkflowInProgress()
+    {
+        return Response.status( Response.Status.OK ).entity( systemManager.isEnvironmentWorkflowInProgress() ).build();
+    }
+
+
+    @Override
+    public Response getHubIp()
+    {
+        return Response.status( Response.Status.OK ).entity( systemManager.getHubIp() ).build();
     }
 
 

@@ -21,9 +21,11 @@ public class Quota
                   @JsonProperty( "threshold" ) final Integer threshold )
     {
         Preconditions.checkNotNull( resource );
-        Preconditions.checkNotNull( threshold );
-        Preconditions.checkArgument( threshold >= 0 );
-        Preconditions.checkArgument( threshold <= 100 );
+        if ( threshold != null )
+        {
+            Preconditions.checkArgument( threshold >= 0 );
+            Preconditions.checkArgument( threshold <= 100 );
+        }
 
         this.resource = resource;
         this.threshold = threshold;
@@ -54,6 +56,17 @@ public class Quota
 
 
     @JsonIgnore
+    public ContainerCpuSetResource getAsCpuSetResource()
+    {
+        if ( resource.getContainerResourceType() == ContainerResourceType.CPUSET )
+        {
+            return ( ContainerCpuSetResource ) resource;
+        }
+        throw new IllegalStateException( "Could not get as CPU resource." );
+    }
+
+
+    @JsonIgnore
     public ContainerRamResource getAsRamResource()
     {
         if ( resource.getContainerResourceType() == ContainerResourceType.RAM )
@@ -65,12 +78,20 @@ public class Quota
 
 
     @JsonIgnore
+    public ContainerNetResource getAsNetResource()
+    {
+        if ( resource.getContainerResourceType() == ContainerResourceType.NET )
+        {
+            return ( ContainerNetResource ) resource;
+        }
+        throw new IllegalStateException( "Could not get as NET resource." );
+    }
+
+
+    @JsonIgnore
     public ContainerDiskResource getAsDiskResource()
     {
-        if ( resource.getContainerResourceType() == ContainerResourceType.OPT
-                || resource.getContainerResourceType() == ContainerResourceType.HOME
-                || resource.getContainerResourceType() == ContainerResourceType.ROOTFS
-                || resource.getContainerResourceType() == ContainerResourceType.VAR )
+        if ( resource.getContainerResourceType() == ContainerResourceType.DISK )
         {
             return ( ContainerDiskResource ) resource;
         }

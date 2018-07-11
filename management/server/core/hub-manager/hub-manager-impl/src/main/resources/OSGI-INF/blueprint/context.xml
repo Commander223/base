@@ -31,11 +31,14 @@
   <reference id="identityManager"
              interface="io.subutai.core.identity.api.IdentityManager" />
 
-  <reference id="hostRegistrationManager"
-             interface="io.subutai.core.registration.api.HostRegistrationManager" />
-
   <reference id="commandExecutor" availability="mandatory"
              interface="io.subutai.core.executor.api.CommandExecutor" />
+
+  <reference id="desktopManager"
+             interface="io.subutai.core.desktop.api.DesktopManager" />
+
+  <reference id="systemManager"
+             interface="io.subutai.core.systemmanager.api.SystemManager" />
 
   <!-- ***************************************************************** -->
   <bean id="daoManagerHub" init-method="init" class="io.subutai.common.dao.DaoManager" scope="prototype">
@@ -49,10 +52,11 @@
     <property name="peerManager" ref="peerManager" />
     <property name="environmentManager" ref="environmentManager" />
     <property name="identityManager" ref="identityManager" />
-    <property name="hostRegistrationManager" ref="hostRegistrationManager" />
     <property name="monitor" ref="monitor" />
     <property name="commandExecutor" ref="commandExecutor" />
     <property name="logListener" ref="logListener" />
+    <property name="desktopManager" ref="desktopManager" />
+    <property name="systemManager" ref="systemManager" />
     <argument ref="daoManagerHub" />
   </bean>
 
@@ -63,13 +67,12 @@
   <reference-list id="hubEventLstnr"
                   interface="io.subutai.hub.share.common.HubEventListener"
                   availability="optional">
-    <reference-listener ref="hubImpl"
-                        bind-method="addListener" unbind-method="removeListener" />
+    <reference-listener ref="hubImpl" bind-method="addListener" unbind-method="removeListener" />
   </reference-list>
 
-  <bean id="hubAdapter" class="io.subutai.core.hubmanager.impl.adapter.HubAdapterImpl" activation="eager">
+  <bean id="hubAdapter" class="io.subutai.core.hubmanager.impl.adapter.HubAdapterImpl" activation="eager"
+        scope="singleton">
     <argument ref="daoManagerHub" />
-    <argument ref="securityManager" />
     <argument ref="peerManager" />
     <argument ref="identityManager" />
   </bean>
@@ -77,5 +80,7 @@
   <service ref="hubAdapter" interface="io.subutai.hub.share.common.HubAdapter" />
 
   <service ref="hubAdapter" interface="io.subutai.core.environment.api.EnvironmentEventListener" />
+
+  <service ref="hubAdapter" interface="io.subutai.core.hostregistry.api.HostListener" />
 
 </blueprint>

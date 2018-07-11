@@ -1,8 +1,6 @@
 package io.subutai.core.network.impl;
 
 
-import java.util.Date;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -12,8 +10,6 @@ import org.mockito.runners.MockitoJUnitRunner;
 import io.subutai.common.command.CommandException;
 import io.subutai.common.command.CommandResult;
 import io.subutai.common.command.RequestBuilder;
-import io.subutai.common.network.JournalCtlLevel;
-import io.subutai.common.network.P2pLogs;
 import io.subutai.common.network.ProxyLoadBalanceStrategy;
 import io.subutai.common.network.SshTunnel;
 import io.subutai.common.peer.ContainerHost;
@@ -24,7 +20,6 @@ import io.subutai.common.peer.ResourceHost;
 import io.subutai.common.protocol.P2PConnections;
 import io.subutai.common.protocol.Tunnels;
 import io.subutai.common.settings.Common;
-import io.subutai.common.settings.SystemSettings;
 import io.subutai.core.network.api.NetworkManagerException;
 import io.subutai.core.peer.api.PeerManager;
 
@@ -79,8 +74,6 @@ public class NetworkManagerImplTest
     Commands commands;
     @Mock
     RequestBuilder requestBuilder;
-    @Mock
-    SystemSettings systemSettings2;
 
 
     private NetworkManagerImpl networkManager;
@@ -92,12 +85,6 @@ public class NetworkManagerImplTest
         NetworkManagerImplForTest( final PeerManager peerManager )
         {
             super( peerManager );
-        }
-
-
-        protected SystemSettings getSystemSettings()
-        {
-            return systemSettings2;
         }
     }
 
@@ -202,25 +189,6 @@ public class NetworkManagerImplTest
     }
 
 
-    @Test( expected = NetworkManagerException.class )
-    public void testGetP2pLogs() throws Exception
-    {
-        doReturn( P2P_LOG_OUTPUT ).when( commandResult ).getStdOut();
-
-        P2pLogs p2pLogs = networkManager.getP2pLogs( resourceHost, JournalCtlLevel.ALL, new Date(), new Date() );
-
-        assertFalse( p2pLogs.isEmpty() );
-
-        p2pLogs = networkManager.getP2pLogs( resourceHost, JournalCtlLevel.ERROR, new Date(), new Date() );
-
-        assertFalse( p2pLogs.isEmpty() );
-
-        doThrow( new CommandException( "" ) ).when( resourceHost ).execute( any( RequestBuilder.class ) );
-
-        networkManager.getP2pLogs( resourceHost, JournalCtlLevel.ERROR, new Date(), new Date() );
-    }
-
-
     @Test
     public void testCreateTunnel() throws Exception
     {
@@ -284,13 +252,11 @@ public class NetworkManagerImplTest
 
         doReturn( false ).when( commandResult ).hasSucceeded();
 
-        assertFalse(  networkManager.isIpInVlanDomain( LOCAL_IP, VLAN_ID ) );
+        assertFalse( networkManager.isIpInVlanDomain( LOCAL_IP, VLAN_ID ) );
 
         doThrow( new CommandException( "" ) ).when( managementHost ).execute( any( RequestBuilder.class ) );
 
         networkManager.isIpInVlanDomain( LOCAL_IP, VLAN_ID );
-
-
     }
 
 

@@ -18,4 +18,15 @@ public interface ContainerHostInfo extends HostInfo
     ContainerHostState getState();
 
     String getContainerName();
+
+    Quota getRawQuota();
+
+    /**
+     * Returns network interfaces of host
+     */
+    HostInterfaces getHostInterfaces();
+
+    String getEnvId();
+
+    Integer getVlan();
 }

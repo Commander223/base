@@ -22,16 +22,26 @@ function TenantsViewCtrl($scope, $rootScope, environmentService, SweetAlert, DTO
 
 	vm.dtColumns = [
 		DTColumnBuilder.newColumn('name').withTitle('Name'),
-		DTColumnBuilder.newColumn('username').withTitle('User'),
+		DTColumnBuilder.newColumn('username').withTitle('User').renderWith(actionUsername),
 		DTColumnBuilder.newColumn('id').withTitle('ID'),
-		DTColumnBuilder.newColumn('dataSource').withTitle('Source').renderWith(parseSource),
+		DTColumnBuilder.newColumn('dataSource').withTitle('Source'),
 		DTColumnBuilder.newColumn('status').withTitle('Status').renderWith(actionStatus),
-		DTColumnBuilder.newColumn(null).withTitle('').notSortable().renderWith(actionDelete)
+		DTColumnBuilder.newColumn(null).withTitle('Delete').notSortable().renderWith(actionDelete)
 	];
 
 	function createdRow(row, data, dataIndex) {
 		$compile(angular.element(row).contents())($scope);
 	}
+
+    function actionUsername(data, type, full, meta){
+        var user = data.split("@");
+
+        if(user.length == 2){
+            return "<a href='https://"+ localStorage.getItem("hubIp") +"?openPrivateChatWith="+ user[1] +"' target='_blank'>" + user[0] + "<a/>";
+        }else{
+            return data;
+        }
+    }
 
 	function actionStatus(data, type, full, meta) {
 		var statusString = ['<div class="b-status-icon b-status-icon_' + data + '"',
@@ -40,17 +50,6 @@ function TenantsViewCtrl($scope, $rootScope, environmentService, SweetAlert, DTO
 			'tooltip-side="right">',
 		'</div> ' + data].join('');
 		return statusString;
-	}
-
-	function parseSource(data, type, full, meta) {
-		if(data.endsWith("LocalEnvironment")){
-		    return "Local";
-		}
-		else if(data.endsWith("RemoteEnvironment")){
-		    return "Remote";
-		}else{
-		    return "Hub";
-		}
 	}
 
 	function actionDelete(data, type, full, meta) {

@@ -15,14 +15,19 @@ public class CpuDto
     @JsonProperty( "frequency" )
     private double frequency = 0.0;
 
+    @JsonProperty( "system" )
     private double system = 0.0;
 
+    @JsonProperty( "idle" )
     private double idle = 0.0;
 
+    @JsonProperty( "iowait" )
     private double iowait = 0.0;
 
+    @JsonProperty( "user" )
     private double user = 0.0;
 
+    @JsonProperty( "nice" )
     private double nice = 0.0;
 
 
@@ -119,5 +124,22 @@ public class CpuDto
     public void setNice( final double nice )
     {
         this.nice = nice;
+    }
+
+
+    @Override
+    public String toString()
+    {
+        final StringBuffer sb = new StringBuffer( "CpuDto{" );
+        sb.append( "model='" ).append( model ).append( '\'' );
+        sb.append( ", coreCount=" ).append( coreCount );
+        sb.append( ", frequency=" ).append( frequency );
+        sb.append( ", system=" ).append( system );
+        sb.append( ", idle=" ).append( idle );
+        sb.append( ", iowait=" ).append( iowait );
+        sb.append( ", user=" ).append( user );
+        sb.append( ", nice=" ).append( nice );
+        sb.append( '}' );
+        return sb.toString();
     }
 }

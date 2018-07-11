@@ -1,51 +1,58 @@
 package io.subutai.core.registration.impl;
 
 
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.security.RolesAllowed;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.commons.lang3.StringUtils;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
+import io.subutai.common.cache.ExpiringCache;
 import io.subutai.common.dao.DaoManager;
-import io.subutai.common.host.HostInfo;
+import io.subutai.common.host.ContainerHostInfo;
+import io.subutai.common.host.ResourceHostInfo;
+import io.subutai.common.metric.QuotaAlertValue;
 import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.security.crypto.pgp.PGPKeyUtil;
 import io.subutai.common.security.objects.SecurityKeyType;
 import io.subutai.common.settings.Common;
 import io.subutai.common.util.ServiceLocator;
+import io.subutai.core.environment.api.EnvironmentManager;
+import io.subutai.core.hostregistry.api.HostListener;
 import io.subutai.core.registration.api.HostRegistrationManager;
 import io.subutai.core.registration.api.ResourceHostRegistrationStatus;
 import io.subutai.core.registration.api.exception.HostRegistrationException;
 import io.subutai.core.registration.api.service.ContainerInfo;
-import io.subutai.core.registration.api.service.ContainerToken;
 import io.subutai.core.registration.api.service.RequestedHost;
-import io.subutai.core.registration.impl.dao.ContainerTokenDataService;
 import io.subutai.core.registration.impl.dao.RequestDataService;
-import io.subutai.core.registration.impl.entity.ContainerTokenImpl;
 import io.subutai.core.registration.impl.entity.RequestedHostImpl;
 import io.subutai.core.security.api.SecurityManager;
 import io.subutai.core.security.api.crypto.KeyManager;
 
 
 //TODO add security annotation
-public class HostRegistrationManagerImpl implements HostRegistrationManager
+public class HostRegistrationManagerImpl extends HostListener implements HostRegistrationManager
 {
     private static final Logger LOG = LoggerFactory.getLogger( HostRegistrationManagerImpl.class );
     private SecurityManager securityManager;
-    protected RequestDataService requestDataService;
-    protected ContainerTokenDataService containerTokenDataService;
+    RequestDataService requestDataService;
     private DaoManager daoManager;
-    protected ServiceLocator serviceLocator = new ServiceLocator();
+    ServiceLocator serviceLocator = new ServiceLocator();
+    private ScheduledExecutorService cleaner = Executors.newSingleThreadScheduledExecutor();
+    ExpiringCache<String, Boolean> tokenCache = new ExpiringCache<>();
 
 
     public HostRegistrationManagerImpl( final SecurityManager securityManager, final DaoManager daoManager )
@@ -60,14 +67,96 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
 
     public void init()
     {
-        containerTokenDataService = new ContainerTokenDataService( daoManager );
         requestDataService = new RequestDataService( daoManager );
+        cleaner.scheduleWithFixedDelay( new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                for ( RequestedHostImpl requestedHost : requestDataService.getAll() )
+                {
+                    if ( requestedHost.getStatus() == ResourceHostRegistrationStatus.REQUESTED &&
+                            System.currentTimeMillis() - ( requestedHost.getDateUpdated() == null ? 0L :
+                                                           requestedHost.getDateUpdated() ) > TimeUnit.MINUTES
+                                    .toMillis( 60 ) )
+                    {
+                        LOG.warn( "Deleting stale registration request {} : {}", requestedHost.getHostname(),
+                                requestedHost.getAddress() );
+
+                        requestDataService.remove( requestedHost.getId() );
+                    }
+                }
+            }
+        }, 3, 30, TimeUnit.MINUTES );
     }
 
 
-    protected RequestDataService getRequestDataService()
+    @Override
+    public String generateContainerToken( final long ttlInMs )
+    {
+        Preconditions.checkArgument( ttlInMs > 0, "Invalid ttl" );
+
+        String token = UUID.randomUUID().toString();
+
+        tokenCache.put( token, true, ttlInMs );
+
+        return token;
+    }
+
+
+    @Override
+    public Boolean verifyTokenAndRegisterKey( final String token, String containerHostId, String publicKey )
+            throws HostRegistrationException
+    {
+
+        if ( !tokenCache.keyExists( token ) )
+        {
+            return false;
+        }
+
+        try
+        {
+            securityManager.getKeyManager()
+                           .savePublicKeyRing( containerHostId, SecurityKeyType.CONTAINER_HOST_KEY.getId(), publicKey );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( "Error verifying token", e );
+
+            throw new HostRegistrationException( "Failed to store container pubkey", e );
+        }
+
+        return true;
+    }
+
+
+    public void dispose()
+    {
+        cleaner.shutdown();
+    }
+
+
+    RequestDataService getRequestDataService()
     {
         return requestDataService;
+    }
+
+
+    @Override
+    public void changeRhHostname( final String rhId, String hostname ) throws HostRegistrationException
+    {
+        try
+        {
+            LocalPeer localPeer = serviceLocator.getService( LocalPeer.class );
+
+            localPeer.setRhHostname( rhId, hostname );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( "Error changing RH hostname", e );
+
+            throw new HostRegistrationException( e );
+        }
     }
 
 
@@ -97,6 +186,8 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
         Preconditions
                 .checkArgument( PGPKeyUtil.isValidPublicKeyring( requestedHost.getPublicKey() ), "Invalid public key" );
 
+        Preconditions.checkArgument( !StringUtils.isBlank( requestedHost.getId() ), "Invalid host id" );
+
         try
         {
             RequestedHostImpl requestedHostImpl = requestDataService.find( requestedHost.getId() );
@@ -113,9 +204,11 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
                                                                                                                 .getHostname() ) )
                 {
                     requestedHostImpl.setHostname( requestedHost.getHostname() );
-
-                    requestDataService.update( requestedHostImpl );
                 }
+
+                requestedHostImpl.refreshDateUpdated();
+
+                requestDataService.update( requestedHostImpl );
             }
             else
             {
@@ -130,7 +223,7 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
         }
         catch ( Exception e )
         {
-            LOG.error( "Error queueing agent registration request", e );
+            LOG.error( "Error queueing registration request", e );
 
             throw new HostRegistrationException( e );
         }
@@ -148,7 +241,7 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
         }
         catch ( Exception e )
         {
-            LOG.error( "Error rejecting agent registration request", e );
+            LOG.error( "Error rejecting registration request", e );
 
             throw new HostRegistrationException( e );
         }
@@ -180,10 +273,14 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
             {
                 importHostPublicKey( containerInfo.getId(), containerInfo.getPublicKey(), false );
             }
+
+            //register resource host
+            LocalPeer localPeer = serviceLocator.getService( LocalPeer.class );
+            localPeer.registerResourceHost( registrationRequest );
         }
         catch ( Exception e )
         {
-            LOG.error( "Error approving agent registration request", e );
+            LOG.error( "Error approving registration request", e );
 
             throw new HostRegistrationException( e );
         }
@@ -193,11 +290,23 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
     @Override
     public void removeRequest( final String requestId ) throws HostRegistrationException
     {
+        EnvironmentManager environmentManager = serviceLocator.getService( EnvironmentManager.class );
+
+        if ( environmentManager.rhHasEnvironments( requestId ) )
+        {
+            throw new HostRegistrationException( "There are environments on this host" );
+        }
+
         try
         {
             RequestedHost requestedHost = requestDataService.find( requestId );
 
-            if ( requestedHost != null )
+            if ( requestedHost == null )
+            {
+                return;
+            }
+
+            if ( requestedHost.getStatus() == ResourceHostRegistrationStatus.APPROVED )
             {
                 requestDataService.remove( requestedHost.getId() );
 
@@ -205,14 +314,18 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
 
                 localPeer.removeResourceHost( requestedHost.getId() );
             }
+            else if ( requestedHost.getStatus() == ResourceHostRegistrationStatus.REQUESTED )
+            {
+                requestDataService.remove( requestedHost.getId() );
+            }
         }
         catch ( HostNotFoundException e )
         {
-            LOG.warn( "Error removing agent registration request: {}", e.getMessage() );
+            LOG.warn( "Resource host {} not found in registered hosts", requestId );
         }
         catch ( Exception e )
         {
-            LOG.error( "Error removing agent registration request", e );
+            LOG.error( "Error removing registration request", e );
 
             throw new HostRegistrationException( e );
         }
@@ -220,69 +333,34 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
 
 
     @Override
-    public ContainerToken generateContainerTTLToken( final long ttlInMs ) throws HostRegistrationException
+    public void unblockRequest( final String requestId ) throws HostRegistrationException
     {
-        Preconditions.checkArgument( ttlInMs > 0, "Invalid ttl" );
-
-        ContainerTokenImpl token =
-                new ContainerTokenImpl( UUID.randomUUID().toString(), new Timestamp( System.currentTimeMillis() ),
-                        ttlInMs );
         try
         {
-            containerTokenDataService.persist( token );
+            RequestedHost requestedHost = requestDataService.find( requestId );
+
+            if ( requestedHost != null && requestedHost.getStatus() == ResourceHostRegistrationStatus.REJECTED )
+            {
+                requestDataService.remove( requestedHost.getId() );
+            }
         }
         catch ( Exception e )
         {
-            LOG.error( "Error persisting container token", e );
+            LOG.error( "Error unblocking registration request", e );
 
             throw new HostRegistrationException( e );
         }
-
-        return token;
     }
 
 
-    @Override
-    public ContainerToken verifyToken( final String token, String containerHostId, String publicKey )
-            throws HostRegistrationException
-    {
-
-        ContainerTokenImpl containerToken = containerTokenDataService.find( token );
-
-        if ( containerToken == null )
-        {
-            throw new HostRegistrationException( "Couldn't verify container token" );
-        }
-
-        if ( containerToken.getDateCreated().getTime() + containerToken.getTtl() < System.currentTimeMillis() )
-        {
-            throw new HostRegistrationException( "Container token expired" );
-        }
-
-        try
-        {
-            securityManager.getKeyManager()
-                           .savePublicKeyRing( containerHostId, SecurityKeyType.CONTAINER_HOST_KEY.getId(), publicKey );
-        }
-        catch ( Exception e )
-        {
-            LOG.error( "Error verifying token", e );
-
-            throw new HostRegistrationException( "Failed to store container pubkey", e );
-        }
-
-        return containerToken;
-    }
-
-
-    protected void importHostSslCert( String hostId, String cert )
+    void importHostSslCert( String hostId, String cert )
     {
         securityManager.getKeyStoreManager().importCertAsTrusted( Common.DEFAULT_PUBLIC_SECURE_PORT, hostId, cert );
         securityManager.getHttpContextManager().reloadKeyStore();
     }
 
 
-    protected void importHostPublicKey( String hostId, String publicKey, boolean rh )
+    void importHostPublicKey( String hostId, String publicKey, boolean rh )
     {
         KeyManager keyManager = securityManager.getKeyManager();
         keyManager.savePublicKeyRing( hostId,
@@ -291,7 +369,7 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
     }
 
 
-    protected void checkManagement( RequestedHost requestedHost )
+    void checkManagement( RequestedHost requestedHost )
     {
         try
         {
@@ -323,16 +401,37 @@ public class HostRegistrationManagerImpl implements HostRegistrationManager
     }
 
 
-    protected boolean containsManagementContainer( Set<ContainerInfo> containers )
+    boolean containsManagementContainer( Set<ContainerInfo> containers )
     {
-        for ( HostInfo hostInfo : containers )
+        for ( ContainerHostInfo hostInfo : containers )
         {
-            if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( hostInfo.getHostname() ) )
+            if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( hostInfo.getContainerName() ) )
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+
+    @Override
+    public void onHeartbeat( final ResourceHostInfo resourceHostInfo, final Set<QuotaAlertValue> alerts )
+    {
+        try
+        {
+            RequestedHostImpl registrationRequest = requestDataService.find( resourceHostInfo.getId() );
+
+            if ( registrationRequest != null )
+            {
+                registrationRequest.setHostname( resourceHostInfo.getHostname() );
+
+                requestDataService.update( registrationRequest );
+            }
+        }
+        catch ( Exception e )
+        {
+            LOG.error( "Error updating host registration data", e );
+        }
     }
 }

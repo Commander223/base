@@ -1,6 +1,9 @@
 package io.subutai.common.host;
 
 
+import java.util.HashSet;
+import java.util.Set;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.MoreObjects;
 import com.google.gson.annotations.SerializedName;
@@ -18,6 +21,17 @@ public class ContainerHostInfoModel extends HostInfoModel implements ContainerHo
     @SerializedName( "name" )
     @JsonProperty( "name" )
     protected String name;
+    @SerializedName( "quota" )
+    @JsonProperty( "quota" )
+    protected Quota quota;
+    @SerializedName( "interfaces" )
+    @JsonProperty( "interfaces" )
+    protected Set<HostInterfaceModel> hostInterfaces = new HashSet<>();
+    @JsonProperty( "environmentId" )
+    @SerializedName( "environmentId" )
+    protected String envId;
+    @JsonProperty( "vlan" )
+    protected Integer vlan;
 
 
     public ContainerHostInfoModel( @JsonProperty( "id" ) final String id,
@@ -25,11 +39,50 @@ public class ContainerHostInfoModel extends HostInfoModel implements ContainerHo
                                    @JsonProperty( "containerName" ) final String containerName,
                                    @JsonProperty( "interfaces" ) final HostInterfaces hostInterfaces,
                                    @JsonProperty( "arch" ) final HostArchitecture hostArchitecture,
-                                   @JsonProperty( "status" ) final ContainerHostState state )
+                                   @JsonProperty( "status" ) final ContainerHostState state,
+                                   @JsonProperty( "environmentId" ) final String envId,
+                                   @JsonProperty( "vlan" ) final Integer vlan )
     {
-        super( id, hostname, hostInterfaces, hostArchitecture );
+        super( id, hostname, hostArchitecture );
         this.state = state;
         this.name = containerName;
+        this.envId = envId;
+        this.vlan = vlan;
+        setHostInterfaces( hostInterfaces );
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        return quota;
+    }
+
+
+    @Override
+    public String getEnvId()
+    {
+        return envId;
+    }
+
+
+    @Override
+    public Integer getVlan()
+    {
+        return vlan;
+    }
+
+
+    @Override
+    public HostInterfaces getHostInterfaces()
+    {
+        return new HostInterfaces( this.id, this.hostInterfaces );
+    }
+
+
+    public void setHostInterfaces( final HostInterfaces hostInterfaces )
+    {
+        this.hostInterfaces.addAll( hostInterfaces.getAll() );
     }
 
 
@@ -38,6 +91,7 @@ public class ContainerHostInfoModel extends HostInfoModel implements ContainerHo
         super( info );
         this.state = info.getState();
         this.name = info.getContainerName();
+        this.quota = info.getRawQuota();
     }
 
 
@@ -60,7 +114,7 @@ public class ContainerHostInfoModel extends HostInfoModel implements ContainerHo
     {
         return MoreObjects.toStringHelper( this ).add( "id", id ).add( "hostname", hostname )
                           .add( "interfaces", hostInterfaces ).add( "status", state ).add( "arch", hostArchitecture )
-                          .toString();
+                          .add( "environmentId", envId ).add( "vlan", vlan ).toString();
     }
 
 

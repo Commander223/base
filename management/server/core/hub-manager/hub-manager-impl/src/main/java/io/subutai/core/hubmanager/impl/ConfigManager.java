@@ -1,18 +1,12 @@
 package io.subutai.core.hubmanager.impl;
 
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.security.KeyStore;
 
-import javax.ws.rs.core.Response;
 
 import org.bouncycastle.openpgp.PGPPrivateKey;
 import org.bouncycastle.openpgp.PGPPublicKey;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang.ArrayUtils;
 import org.apache.cxf.jaxrs.client.WebClient;
 
 import io.subutai.common.security.crypto.keystore.KeyStoreTool;
@@ -21,6 +15,7 @@ import io.subutai.common.security.objects.TokenType;
 import io.subutai.common.settings.Common;
 import io.subutai.common.settings.SecuritySettings;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
+import io.subutai.core.hubmanager.impl.http.HttpClient;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
 import io.subutai.core.identity.api.model.UserToken;
@@ -32,21 +27,17 @@ import io.subutai.hub.share.pgp.message.PGPMessenger;
 
 public class ConfigManager
 {
+
     private static final int HUB_PORT = 444;
-    private static final String HUB_URL = "hub.subut.ai";
 
     private IdentityManager identityManager;
     private PeerManager peerManager;
-
     private PGPPublicKey hPublicKey;
     private PGPPublicKey ownerPublicKey;
     private PGPPublicKey peerPublicKey;
-    private PGPPrivateKey sender;
     private KeyStore keyStore;
     private String peerId;
     private PGPMessenger messenger;
-
-    private KeyStoreTool keyStoreTool;
 
 
     public PeerManager getPeerManager()
@@ -60,11 +51,12 @@ public class ConfigManager
     {
         try
         {
+
             this.identityManager = identityManager;
 
             this.peerManager = peerManager;
 
-            this.sender = securityManager.getKeyManager().getPrivateKey( null );
+            final PGPPrivateKey sender = securityManager.getKeyManager().getPrivateKey( null );
 
             this.peerId = peerManager.getLocalPeer().getId();
 
@@ -78,7 +70,7 @@ public class ConfigManager
 
             this.messenger = new PGPMessenger( sender, hPublicKey );
 
-            this.keyStoreTool = new KeyStoreTool();
+            final KeyStoreTool keyStoreTool = new KeyStoreTool();
 
             this.keyStore = keyStoreTool.createPeerCertKeystore( Common.PEER_CERT_ALIAS,
                     PGPKeyUtil.getFingerprint( peerPublicKey.getFingerprint() ) );
@@ -96,13 +88,13 @@ public class ConfigManager
     }
 
 
-    public PGPPublicKey getOwnerPublicKey()
+    PGPPublicKey getOwnerPublicKey()
     {
         return ownerPublicKey;
     }
 
 
-    public PGPPublicKey getPeerPublicKey()
+    PGPPublicKey getPeerPublicKey()
     {
         return peerPublicKey;
     }
@@ -125,37 +117,18 @@ public class ConfigManager
 
     public String getHubIp()
     {
-        return HUB_URL;
+        return Common.HUB_IP;
     }
 
 
-    public byte[] readContent( Response response ) throws IOException
+    UserToken getUserToken()
     {
-        if ( response.getEntity() == null )
-        {
-            return ArrayUtils.EMPTY_BYTE_ARRAY;
-        }
-
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-
-        InputStream is = ( InputStream ) response.getEntity();
-
-        IOUtils.copy( is, bos );
-        return bos.toByteArray();
-    }
-
-
-    public UserToken getPermanentToken()
-    {
-
         User user = identityManager.getActiveUser();
-
-        //TODO review to make this temporary renewable token
-        return identityManager.createUserToken( user, null, null, null, TokenType.PERMANENT.getId(), null );
+        return identityManager.createUserToken( user, null, null, null, TokenType.SESSION.getId(), null );
     }
 
 
-    public User getActiveUser()
+    User getActiveUser()
     {
         return identityManager.getActiveUser();
     }

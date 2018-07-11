@@ -14,8 +14,6 @@ public interface EnvironmentContainerHost extends ContainerHost
 
     Set<String> getTags();
 
-    EnvironmentContainerHost setContainerSize( ContainerSize size ) throws PeerException;
-
     SshKeys getAuthorizedKeys() throws PeerException;
 
     Integer getDomainPort();

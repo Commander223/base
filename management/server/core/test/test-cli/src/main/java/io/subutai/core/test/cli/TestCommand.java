@@ -1,18 +1,12 @@
 package io.subutai.core.test.cli;
 
 
-import java.util.Map;
+import java.util.Set;
 
 import org.apache.karaf.shell.commands.Command;
 
-import com.google.common.base.Preconditions;
-
-import io.subutai.common.environment.Environment;
-import io.subutai.common.environment.PeerTemplatesDownloadProgress;
-import io.subutai.common.environment.RhTemplatesDownloadProgress;
-import io.subutai.common.peer.Peer;
+import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.util.ServiceLocator;
-import io.subutai.core.environment.api.EnvironmentManager;
 import io.subutai.core.identity.rbac.cli.SubutaiShellCommandSupport;
 
 
@@ -22,42 +16,17 @@ public class TestCommand extends SubutaiShellCommandSupport
 
 
     @Override
-    protected Object doExecute()
+    protected Object doExecute() throws Exception
     {
+        LocalPeer localPeer = ServiceLocator.lookup( LocalPeer.class );
 
-        try
+        Set<String> names = localPeer.getResourceHosts().iterator().next().listExistingContainerNames();
+
+        for ( String name : names )
         {
-            EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
-
-            for ( Environment environment : environmentManager.getEnvironments() )
-            {
-                System.out.format( "Environment \"%s\":%n", environment.getName() );
-
-                for ( Peer peer : environment.getPeers() )
-                {
-                    PeerTemplatesDownloadProgress downloadProgress =
-                            peer.getTemplateDownloadProgress( environment.getEnvironmentId() );
-
-                    System.out.format( "\tPeer \"%s\":%n", peer.getName() );
-
-                    for ( RhTemplatesDownloadProgress rhProgress : downloadProgress.getTemplatesDownloadProgresses() )
-                    {
-                        System.out.format( "\t\tRH \"%s\":%n", rhProgress.getRhId() );
-
-                        for ( Map.Entry<String, Integer> templateProgress : rhProgress.getTemplatesDownloadProgresses()
-                                                                                      .entrySet() )
-                        {
-                            System.out.format( "\t\t\tTemplate \"%s\" -> %d%% downloaded%n", templateProgress.getKey(),
-                                    templateProgress.getValue() );
-                        }
-                    }
-                }
-            }
+            System.out.println( name );
         }
-        catch ( Exception e )
-        {
-            log.warn( e.getMessage() );
-        }
+
         return null;
     }
 }

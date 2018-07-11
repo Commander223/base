@@ -33,6 +33,7 @@ function identitySrv($http) {
         getConfig: getConfig,
         isUpdateInProgress: isUpdateInProgress,
 		isAdminCheck: isAdminCheck,
+		hasEnvironments:hasEnvironments,
 
         updatePublicKey: updatePublicKey,
         createIdentityDelegateDocument: createIdentityDelegateDocument,
@@ -50,7 +51,7 @@ function identitySrv($http) {
         },
         getTokensUrl: function () {
             return TOKENS_URL
-        }
+        },
     };
 
     return identitySrv;
@@ -224,4 +225,12 @@ function identitySrv($http) {
 			{withCredentials: true, headers: {'Content-Type': 'application/json'}}
 		);
 	}
+
+	function hasEnvironments(userId) {
+		return $http.get(
+			BASE_URL + 'has-environments/' + userId,
+			{withCredentials: true, headers: {'Content-Type': 'application/json'}}
+		);
+	}
+
 }

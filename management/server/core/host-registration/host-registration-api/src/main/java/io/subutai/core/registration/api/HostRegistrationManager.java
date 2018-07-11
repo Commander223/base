@@ -4,7 +4,6 @@ package io.subutai.core.registration.api;
 import java.util.List;
 
 import io.subutai.core.registration.api.exception.HostRegistrationException;
-import io.subutai.core.registration.api.service.ContainerToken;
 import io.subutai.core.registration.api.service.RequestedHost;
 
 
@@ -22,8 +21,12 @@ public interface HostRegistrationManager
 
     void removeRequest( String requestId ) throws HostRegistrationException;
 
-    ContainerToken generateContainerTTLToken( long ttlInMs ) throws HostRegistrationException;
+    void unblockRequest( String requestId ) throws HostRegistrationException;
 
-    ContainerToken verifyToken( String token, String containerHostId, String publicKey )
+    String generateContainerToken( long ttlInMs );
+
+    Boolean verifyTokenAndRegisterKey( String token, String containerHostId, String publicKey )
             throws HostRegistrationException;
+
+    void changeRhHostname( String rhId, String hostname ) throws HostRegistrationException;
 }

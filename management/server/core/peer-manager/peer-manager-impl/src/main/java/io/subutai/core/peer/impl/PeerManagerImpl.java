@@ -30,10 +30,12 @@ import com.google.common.base.Strings;
 
 import io.subutai.common.dao.DaoManager;
 import io.subutai.common.exception.NetworkException;
-import io.subutai.common.host.HostInterface;
+import io.subutai.common.host.ContainerHostInfo;
+import io.subutai.common.host.HeartBeat;
+import io.subutai.common.host.HeartbeatListener;
+import io.subutai.common.host.ResourceHostInfo;
 import io.subutai.common.network.SocketUtil;
 import io.subutai.common.peer.Encrypted;
-import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.peer.PeerException;
@@ -53,8 +55,9 @@ import io.subutai.common.security.relation.model.RelationInfoMeta;
 import io.subutai.common.security.relation.model.RelationMeta;
 import io.subutai.common.security.relation.model.RelationStatus;
 import io.subutai.common.settings.Common;
-import io.subutai.common.util.IPUtil;
 import io.subutai.common.util.SecurityUtilities;
+import io.subutai.common.util.ServiceLocator;
+import io.subutai.core.hostregistry.api.HostRegistry;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
 import io.subutai.core.identity.api.model.UserToken;
@@ -67,7 +70,9 @@ import io.subutai.core.peer.api.PeerManager;
 import io.subutai.core.peer.api.RegistrationClient;
 import io.subutai.core.peer.impl.command.CommandResponseListener;
 import io.subutai.core.peer.impl.dao.PeerDataService;
+import io.subutai.core.peer.impl.dao.PeerRegistrationDataService;
 import io.subutai.core.peer.impl.entity.PeerData;
+import io.subutai.core.peer.impl.entity.PeerRegistrationData;
 import io.subutai.core.peer.impl.request.MessageResponseListener;
 import io.subutai.core.security.api.SecurityManager;
 import io.subutai.hub.share.resource.PeerGroupResources;
@@ -78,28 +83,28 @@ import io.subutai.hub.share.resource.PeerResources;
  * PeerManager implementation
  */
 @PermitAll
-public class PeerManagerImpl implements PeerManager
+public class PeerManagerImpl implements PeerManager, HeartbeatListener
 {
     private static final Logger LOG = LoggerFactory.getLogger( PeerManagerImpl.class );
-    final int MAX_CONTAINER_LIMIT = 20;
-    final int MAX_ENVIRONMENT_LIMIT = 20;
-    protected PeerDataService peerDataService;
+    private static final int MAX_CONTAINER_LIMIT = 20;
+    private static final int MAX_ENVIRONMENT_LIMIT = 20;
+    private PeerDataService peerDataService;
+    private PeerRegistrationDataService peerRegistrationDataService;
     private final LocalPeer localPeer;
     protected Messenger messenger;
-    protected CommandResponseListener commandResponseListener;
+    CommandResponseListener commandResponseListener;
     private MessageResponseListener messageResponseListener;
     private DaoManager daoManager;
     private SecurityManager securityManager;
     private Object provider;
-    private Map<String, RegistrationData> registrationRequests = new ConcurrentHashMap<>();
     private List<PeerActionListener> peerActionListeners = new CopyOnWriteArrayList<>();
     private IdentityManager identityManager;
     private Map<String, Peer> peers = new ConcurrentHashMap<>();
     private ObjectMapper mapper = new ObjectMapper();
     private String localPeerId;
     private RegistrationClient registrationClient;
-    protected ScheduledExecutorService localIpSetter;
     private RelationManager relationManager;
+    private ScheduledExecutorService localIpSetter = Executors.newSingleThreadScheduledExecutor();
 
 
     public PeerManagerImpl( final Messenger messenger, LocalPeer localPeer, DaoManager daoManager,
@@ -133,6 +138,8 @@ public class PeerManagerImpl implements PeerManager
         {
             this.peerDataService = new PeerDataService( daoManager.getEntityManagerFactory() );
 
+            this.peerRegistrationDataService = new PeerRegistrationDataService( daoManager.getEntityManagerFactory() );
+
             localPeerId = securityManager.getKeyManager().getPeerId();
 
             PeerData localPeerData = peerDataService.find( localPeerId );
@@ -155,8 +162,8 @@ public class PeerManagerImpl implements PeerManager
                 updatePeerInCache( peer );
             }
 
-            localIpSetter = Executors.newSingleThreadScheduledExecutor();
-            localIpSetter.scheduleWithFixedDelay( new IpDetectionTask(), 1, 5, TimeUnit.SECONDS );
+
+            localIpSetter.scheduleWithFixedDelay( new IpDetectionJob(), 1, 5, TimeUnit.SECONDS );
         }
         catch ( Exception e )
         {
@@ -168,6 +175,8 @@ public class PeerManagerImpl implements PeerManager
     public void destroy()
     {
         commandResponseListener.dispose();
+
+        localIpSetter.shutdown();
     }
 
 
@@ -177,19 +186,19 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    public RelationManager getRelationManager()
+    RelationManager getRelationManager()
     {
         return relationManager;
     }
 
 
-    public IdentityManager getIdentityManager()
+    IdentityManager getIdentityManager()
     {
         return identityManager;
     }
 
 
-    public PeerPolicy getDefaultPeerPolicy( String peerId )
+    private PeerPolicy getDefaultPeerPolicy( String peerId )
     {
         //TODO: make values configurable
         return new PeerPolicy( peerId, 90, 50, 90, 90, 3, 10 );
@@ -290,7 +299,6 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    //todo review and remove if not needed (when kurjun will be removed)
     private String generateActiveUserToken() throws PeerException
     {
         try
@@ -321,7 +329,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    protected void updatePeerInCache( final Peer peer )
+    void updatePeerInCache( final Peer peer )
     {
         Preconditions.checkNotNull( peer, "Peer could not be null." );
 
@@ -329,7 +337,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    protected void removePeerFromCache( String id )
+    private void removePeerFromCache( String id )
     {
         Peer peer = this.peers.get( id );
         if ( peer != null )
@@ -339,7 +347,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    protected PeerData loadPeerData( final String id )
+    private PeerData loadPeerData( final String id )
     {
         return peerDataService.find( id );
     }
@@ -470,6 +478,61 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
+    @RolesAllowed( { "Peer-Management|Write", "Peer-Management|Update" } )
+    @Override
+    public void updatePeerUrl( final String peerId, final String ip ) throws PeerException
+    {
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( peerId ), "Invalid peer id" );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( ip ), "Invalid peer ip" );
+
+        PeerData peerData = loadPeerData( peerId );
+
+        if ( peerData == null )
+        {
+            throw new PeerNotRegisteredException();
+        }
+
+        if ( localPeerId.equals( peerId ) )
+        {
+            throw new PeerException( "Can not update Local Peer url. Use System -> Network page for this" );
+        }
+
+        URL destinationUrl = checkDestinationHostConstraints( ip );
+
+        PeerInfo peerInfo = getRemotePeerInfo( destinationUrl.toString() );
+
+        try
+        {
+            SocketUtil.check( peerInfo.getIp(), 3, peerInfo.getPublicSecurePort() );
+        }
+        catch ( NetworkException e )
+        {
+            throw new PeerException( e.getMessage() );
+        }
+
+        Peer peer = constructPeerPojo( peerData );
+
+        peer.getPeerInfo().setPublicUrl( peerInfo.getPublicUrl() );
+
+        peer.getPeerInfo().setPublicSecurePort( peerInfo.getPublicSecurePort() );
+
+        try
+        {
+            peerData.setInfo( toJson( peer.getPeerInfo() ) );
+        }
+        catch ( IOException e )
+        {
+            throw new PeerException( e );
+        }
+
+        //update db
+        updatePeerData( peerData );
+
+        //update cache
+        updatePeerInCache( peer );
+    }
+
+
     @Override
     public List<Peer> getPeers()
     {
@@ -544,19 +607,21 @@ public class PeerManagerImpl implements PeerManager
 
     private RegistrationData getRequest( final String id )
     {
-        return this.registrationRequests.get( id );
+        PeerRegistrationData peerRegistrationData = peerRegistrationDataService.find( id );
+        return peerRegistrationData == null ? null : peerRegistrationData.getRegistrationData();
     }
 
 
     private void addRequest( final RegistrationData registrationData )
     {
-        this.registrationRequests.put( registrationData.getPeerInfo().getId(), registrationData );
+        peerRegistrationDataService
+                .persist( new PeerRegistrationData( registrationData.getPeerInfo().getId(), registrationData ) );
     }
 
 
     private void removeRequest( final String id )
     {
-        this.registrationRequests.remove( id );
+        peerRegistrationDataService.remove( id );
     }
 
 
@@ -758,7 +823,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    protected PeerInfo getRemotePeerInfo( String destinationHost ) throws PeerException
+    private PeerInfo getRemotePeerInfo( String destinationHost ) throws PeerException
     {
         return registrationClient.getPeerInfo( destinationHost );
     }
@@ -875,8 +940,22 @@ public class PeerManagerImpl implements PeerManager
 
     @RolesAllowed( { "Peer-Management|Delete", "Peer-Management|Update" } )
     @Override
-    public void doCancelRequest( final RegistrationData request, boolean forceAction ) throws PeerException
+    public void doCancelRequest( final String peerId, boolean forceAction ) throws PeerException
     {
+
+        RegistrationData request = findRequest( peerId );
+
+        if ( request == null )
+        {
+            throw new PeerException( "Registration request not found" );
+        }
+
+        if ( request.getStatus() != RegistrationStatus.WAIT )
+        {
+            throw new PeerException( String.format( "Can not cancel request with state other than %s. State is %s",
+                    RegistrationStatus.WAIT, request.getStatus() ) );
+        }
+
 
         //********forceAction ********************
         try
@@ -918,12 +997,25 @@ public class PeerManagerImpl implements PeerManager
 
     @RolesAllowed( { "Peer-Management|Write", "Peer-Management|Update" } )
     @Override
-    public void doApproveRequest( final String keyPhrase, final RegistrationData request ) throws PeerException
+    public void doApproveRequest( final String keyPhrase, final String peerId ) throws PeerException
     {
         if ( Common.LOCAL_HOST_IP.equals( localPeer.getPeerInfo().getIp() ) )
         {
             throw new PeerException( String.format( "Invalid public URL %s. Please set proper public URL.",
                     localPeer.getPeerInfo().getPublicUrl() ) );
+        }
+
+        RegistrationData request = findRequest( peerId );
+
+        if ( request == null )
+        {
+            throw new PeerException( "Registration request not found" );
+        }
+
+        if ( request.getStatus() != RegistrationStatus.REQUESTED )
+        {
+            throw new PeerException( String.format( "Can not approve request with state other than %s. State is %s",
+                    RegistrationStatus.REQUESTED, request.getStatus() ) );
         }
 
         getRemotePeerInfo( request.getPeerInfo().getPublicUrl() );
@@ -950,8 +1042,20 @@ public class PeerManagerImpl implements PeerManager
 
     @RolesAllowed( { "Peer-Management|Delete", "Peer-Management|Update" } )
     @Override
-    public void doRejectRequest( final RegistrationData request, boolean forceAction ) throws PeerException
+    public void doRejectRequest( final String peerId, boolean forceAction ) throws PeerException
     {
+        RegistrationData request = findRequest( peerId );
+
+        if ( request == null )
+        {
+            throw new PeerException( "Registration request not found" );
+        }
+
+        if ( request.getStatus() != RegistrationStatus.REQUESTED )
+        {
+            throw new PeerException( String.format( "Can not reject request with state other than %s. State is %s",
+                    RegistrationStatus.REQUESTED, request.getStatus() ) );
+        }
 
         //********forceAction ********************
         try
@@ -998,8 +1102,21 @@ public class PeerManagerImpl implements PeerManager
 
     @RolesAllowed( { "Peer-Management|Delete", "Peer-Management|Update" } )
     @Override
-    public void doUnregisterRequest( final RegistrationData request, boolean forceAction ) throws PeerException
+    public void doUnregisterRequest( final String peerId, boolean forceAction ) throws PeerException
     {
+
+        RegistrationData request = findRequest( peerId );
+
+        if ( request == null )
+        {
+            throw new PeerException( "Registration request not found" );
+        }
+
+        if ( request.getStatus() != RegistrationStatus.APPROVED )
+        {
+            throw new PeerException( String.format( "Can not reject request with state other than %s. State is %s",
+                    RegistrationStatus.APPROVED, request.getStatus() ) );
+        }
 
         //********forceAction ********************
         try
@@ -1057,10 +1174,26 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
+    private RegistrationData findRequest( String peerId )
+    {
+        final List<RegistrationData> requests = getRegistrationRequests();
+        RegistrationData request = null;
+        for ( int i = 0; i < requests.size() && request == null; i++ )
+        {
+            if ( requests.get( i ).getPeerInfo().getId().equalsIgnoreCase( peerId ) )
+            {
+                request = requests.get( i );
+            }
+        }
+
+        return request;
+    }
+
+
     @Override
     public List<RegistrationData> getRegistrationRequests()
     {
-        List<RegistrationData> r = new ArrayList<>( registrationRequests.values() );
+        List<RegistrationData> r = peerRegistrationDataService.getAllData();
         for ( Peer peer : getPeers() )
         {
             if ( !peer.getId().equals( localPeer.getId() ) )
@@ -1176,16 +1309,8 @@ public class PeerManagerImpl implements PeerManager
         {
             return RegistrationStatus.APPROVED;
         }
-        RegistrationData r = null;
+        RegistrationData r = findRequest( peerId );
 
-        for ( RegistrationData rd : getRegistrationRequests() )
-        {
-            if ( rd.getPeerInfo().getId().equals( peerId ) )
-            {
-                r = rd;
-                break;
-            }
-        }
         if ( r == null )
         {
             return RegistrationStatus.NOT_REGISTERED;
@@ -1202,16 +1327,7 @@ public class PeerManagerImpl implements PeerManager
         {
             return RegistrationStatus.APPROVED;
         }
-        RegistrationData r = null;
-
-        for ( RegistrationData rd : getRegistrationRequests() )
-        {
-            if ( rd.getPeerInfo().getId().equals( peerId ) )
-            {
-                r = rd;
-                break;
-            }
-        }
+        RegistrationData r = findRequest( peerId );
 
         if ( r == null )
         {
@@ -1284,7 +1400,7 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    protected synchronized Integer getMaxOrder() throws PeerException
+    private synchronized Integer getMaxOrder() throws PeerException
     {
         try
         {
@@ -1324,14 +1440,8 @@ public class PeerManagerImpl implements PeerManager
 
 
     @Override
-    public void setPublicUrl( final String peerId, final String publicUrl, final int securePort ) throws PeerException
-    {
-        setPublicUrl( peerId, publicUrl, securePort, true );
-    }
-
-
-    private void setPublicUrl( final String peerId, final String publicUrl, final int securePort,
-                               boolean manualSetting ) throws PeerException
+    public void setPublicUrl( final String peerId, final String publicUrl, final int securePort, boolean useRhIp )
+            throws PeerException
     {
         Preconditions.checkArgument( !Strings.isNullOrEmpty( peerId ) );
         Preconditions.checkArgument( !Strings.isNullOrEmpty( publicUrl ) );
@@ -1354,7 +1464,7 @@ public class PeerManagerImpl implements PeerManager
                 peerInfo.setPublicUrl( publicUrl.toLowerCase() );
                 peerInfo.setPublicSecurePort( securePort );
 
-                peerInfo.setManualSetting( manualSetting );
+                peerInfo.setManualSetting( !useRhIp );
 
                 peerData.setInfo( toJson( peerInfo ) );
 
@@ -1371,45 +1481,81 @@ public class PeerManagerImpl implements PeerManager
     }
 
 
-    private class IpDetectionTask implements Runnable
+    @Override
+    public void onHeartbeat( final HeartBeat heartBeat )
     {
+        boolean hasManagementContainer = false;
+
+        for ( ContainerHostInfo containerHostInfo : heartBeat.getHostInfo().getContainers() )
+        {
+            if ( Common.MANAGEMENT_HOSTNAME.equalsIgnoreCase( containerHostInfo.getContainerName() ) )
+            {
+                hasManagementContainer = true;
+
+                break;
+            }
+        }
+
+        if ( hasManagementContainer )
+        {
+            String ip = heartBeat.getHostInfo().getAddress();
+
+            setLocalPeerUrl( ip );
+        }
+    }
 
 
+    private boolean setLocalPeerUrl( String ip )
+    {
+        synchronized ( localPeer )
+        {
+            if ( !localPeer.isInitialized() )
+            {
+                return false;
+            }
+
+            try
+            {
+                if ( ( Common.DEFAULT_PUBLIC_URL.equals( localPeer.getPeerInfo().getPublicUrl() ) || !localPeer
+                        .getPeerInfo().isManualSetting() ) && !ip.equals( localPeer.getPeerInfo().getIp() ) )
+                {
+                    setPublicUrl( localPeerId, ip, localPeer.getPeerInfo().getPublicSecurePort(), true );
+                }
+            }
+            catch ( Exception e )
+            {
+                LOG.warn( "Error updating local peer public url", e );
+
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+
+    /**
+     * Since heartbeat arrives only once per change on system level, and it can arrive when local peer is not init'ed
+     * yet, we need this additional job to obtain IP of RH-with-MH
+     */
+    private class IpDetectionJob implements Runnable
+    {
         @Override
         public void run()
         {
-            synchronized ( localPeer )
+            try
             {
-                try
-                {
-                    if ( localPeer.isInitialized() && (
-                            Common.DEFAULT_PUBLIC_URL.equals( localPeer.getPeerInfo().getPublicUrl() ) || !localPeer
-                                    .getPeerInfo().isManualSetting() ) )
-                    {
+                HostRegistry hostRegistry = ServiceLocator.lookup( HostRegistry.class );
 
-                        HostInterface eth1 = localPeer.getManagementHost().getInterfaceByName( "eth1" );
+                String ip =
+                        ( ( ResourceHostInfo ) hostRegistry.getHostInfoById( localPeer.getManagementHost().getId() ) )
+                                .getAddress();
 
-                        if ( IPUtil.isIpValid( eth1 ) )
-                        {
-                            HostInterface wan = localPeer.getManagementHost().getInterfaceByName( "wan" );
-
-                            if ( IPUtil.isIpValid( wan ) && !wan.getIp().equals( localPeer.getPeerInfo().getIp() ) )
-
-                            {
-                                setPublicUrl( localPeerId, wan.getIp(), localPeer.getPeerInfo().getPublicSecurePort(),
-                                        false );
-                            }
-                        }
-                    }
-                }
-                catch ( HostNotFoundException e )
-                {
-                    //ignore
-                }
-                catch ( Exception e )
-                {
-                    LOG.warn( "Error updating local peer public url", e );
-                }
+                setLocalPeerUrl( ip );
+            }
+            catch ( Exception e )
+            {
+                LOG.warn( "Error updating local peer public url: {} ", e.getMessage() );
             }
         }
     }

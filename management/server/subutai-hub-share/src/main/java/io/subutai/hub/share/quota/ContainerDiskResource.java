@@ -3,10 +3,12 @@ package io.subutai.hub.share.quota;
 
 import java.math.BigDecimal;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
-import io.subutai.hub.share.parser.DiskValueResourceParser;
+import io.subutai.hub.share.parser.DiskResourceValueParser;
 import io.subutai.hub.share.resource.ByteUnit;
 import io.subutai.hub.share.resource.ByteValueResource;
 import io.subutai.hub.share.resource.ContainerResourceType;
@@ -19,15 +21,22 @@ import io.subutai.hub.share.resource.ContainerResourceType;
 @JsonTypeName( "disk" )
 public class ContainerDiskResource extends ContainerResource<ByteValueResource>
 {
-    public ContainerDiskResource( final ContainerResourceType type, final ByteValueResource value )
+    public ContainerDiskResource( final ByteValueResource value )
     {
-        super( type, value );
+        super( ContainerResourceType.DISK, value );
     }
 
 
-    public ContainerDiskResource( final ContainerResourceType containerResourceType, final String value )
+    public ContainerDiskResource( final double value, final ByteUnit unit )
     {
-        super( containerResourceType, value );
+        this( new ByteValueResource( ByteValueResource.toBytes( BigDecimal.valueOf( value ), unit ) ) );
+    }
+
+
+    @JsonCreator
+    public ContainerDiskResource( @JsonProperty( "value" ) final String value )
+    {
+        super( ContainerResourceType.DISK, value );
     }
 
 
@@ -52,6 +61,12 @@ public class ContainerDiskResource extends ContainerResource<ByteValueResource>
     }
 
 
+    public long longValue( final ByteUnit unit )
+    {
+        return getResource().convert( unit ).longValue();
+    }
+
+
     public double doubleValue( ByteUnit unit )
     {
         return getResource().getValue( unit ).doubleValue();
@@ -61,6 +76,6 @@ public class ContainerDiskResource extends ContainerResource<ByteValueResource>
     @Override
     protected ByteValueResource parse( final String value )
     {
-        return DiskValueResourceParser.getInstance().parse( value );
+        return DiskResourceValueParser.getInstance().parse( value );
     }
 }

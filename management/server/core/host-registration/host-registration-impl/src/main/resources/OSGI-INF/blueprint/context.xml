@@ -11,12 +11,13 @@
   </bean>
 
   <bean id="registrationManager" scope="singleton" class="io.subutai.core.registration.impl.HostRegistrationManagerImpl"
-        init-method="init">
+        init-method="init" destroy-method="dispose">
     <argument ref="securityManagerRef" />
     <argument ref="daoManager" />
   </bean>
 
   <service ref="registrationManager" interface="io.subutai.core.registration.api.HostRegistrationManager" />
+  <service ref="registrationManager" interface="io.subutai.core.hostregistry.api.HostListener" />
 
   <reference id="securityManagerRef" availability="mandatory"
              interface="io.subutai.core.security.api.SecurityManager" />

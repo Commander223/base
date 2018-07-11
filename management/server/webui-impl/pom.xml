@@ -5,14 +5,14 @@
   <parent>
     <artifactId>mgmt-server-parent</artifactId>
     <groupId>io.subutai</groupId>
-    <version>4.0.12-SNAPSHOT</version>
+    <version>7.0.5-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
   <artifactId>webui-impl</artifactId>
 
   <packaging>jar</packaging>
-  <name>Subutai Web UI</name>
+  <name>Subutai Web UI Impl</name>
   <description>Subutai Web UI</description>
 
   <dependencies>

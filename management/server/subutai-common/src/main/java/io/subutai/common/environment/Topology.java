@@ -1,6 +1,7 @@
 package io.subutai.common.environment;
 
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -13,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import io.subutai.common.security.SshEncryptionType;
 
@@ -25,9 +27,11 @@ public class Topology
     private UUID id = UUID.randomUUID();
 
     @JsonProperty( "name" )
+    @SerializedName( "name" )
     private String environmentName;
 
     @JsonProperty( "placement" )
+    @SerializedName( "placement" )
     private Map<String, Set<Node>> nodeGroupPlacement = Maps.newHashMap();
 
     @JsonProperty( "sshKey" )
@@ -82,7 +86,8 @@ public class Topology
         return environmentName;
     }
 
-    public void setEnvironmentName(String environmentName)
+
+    public void setEnvironmentName( String environmentName )
     {
         this.environmentName = environmentName;
     }
@@ -91,6 +96,20 @@ public class Topology
     public Map<String, Set<Node>> getNodeGroupPlacement()
     {
         return Collections.unmodifiableMap( nodeGroupPlacement );
+    }
+
+
+    public Set<Node> getPeerNodes( String peerId )
+    {
+        for ( Map.Entry<String, Set<Node>> placementEntry : nodeGroupPlacement.entrySet() )
+        {
+            if ( placementEntry.getKey().equalsIgnoreCase( peerId ) )
+            {
+                return placementEntry.getValue();
+            }
+        }
+
+        return Sets.newHashSet();
     }
 
 
@@ -145,6 +164,21 @@ public class Topology
     }
 
 
+    public void addAllNodePlacement( final Collection<Node> nodes )
+    {
+        for ( Node node : nodes )
+        {
+            addNodePlacement( node.getPeerId(), node );
+        }
+    }
+
+
+    public Set<Node> removePlacement( String peerId )
+    {
+        return nodeGroupPlacement.remove( peerId );
+    }
+
+
     public String getSshKey()
     {
         return sshKey;
@@ -189,7 +223,7 @@ public class Topology
 
     public SshEncryptionType getSshKeyType()
     {
-        return sshKeyType;
+        return sshKeyType == null ? SshEncryptionType.UNKNOWN : sshKeyType;
     }
 
 
@@ -202,11 +236,7 @@ public class Topology
     @Override
     public String toString()
     {
-        return "Topology{" +
-                "id=" + id +
-                ", environmentName='" + environmentName + '\'' +
-                ", nodeGroupPlacement=" + nodeGroupPlacement +
-                ", sshKey='" + sshKey + '\'' +
-                '}';
+        return "Topology{" + "id=" + id + ", environmentName='" + environmentName + '\'' + ", nodeGroupPlacement="
+                + nodeGroupPlacement + ", sshKey='" + sshKey + '\'' + '}';
     }
 }

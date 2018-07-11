@@ -20,11 +20,16 @@ import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostArchitecture;
 import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
-import io.subutai.common.peer.ContainerSize;
+import io.subutai.common.host.Quota;
+import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.Host;
+import io.subutai.common.peer.PeerException;
+import io.subutai.common.security.SshKeys;
 import io.subutai.common.settings.Common;
 import io.subutai.core.environment.impl.EnvironmentManagerImpl;
 import io.subutai.core.environment.impl.entity.EnvironmentContainerImpl;
+import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 
 class ProxyEnvironmentContainer extends EnvironmentContainerImpl
@@ -33,20 +38,19 @@ class ProxyEnvironmentContainer extends EnvironmentContainerImpl
 
     private static final RequestBuilder WHOAMI = new RequestBuilder( "whoami" );
 
-    private Host proxyContainer;
+    private ContainerHost proxyContainer;
 
     private final boolean local;
 
 
-    //temporary workaround until we get template id from Hub
-    ProxyEnvironmentContainer( JsonNode json, String templateId, EnvironmentManagerImpl environmentManager,
-                               Set<String> localContainerIds )
+    ProxyEnvironmentContainer( JsonNode json, EnvironmentManagerImpl environmentManager, Set<String> localContainerIds )
     {
-
+        //TODO pass env id and vlan from Hub
         super( Common.HUB_ID, json.get( "peerId" ).asText(),
                 new ContainerHostInfoModel( json.get( "id" ).asText(), json.get( "hostName" ).asText(),
                         json.get( "name" ).asText(), initHostInterfaces( json ), HostArchitecture.AMD64,
-                        ContainerHostState.RUNNING ), templateId, json.get( "domainName" ).asText(), parseSize( json ),
+                        ContainerHostState.RUNNING, null, null ), json.get( "templateId" ).asText(),
+                json.get( "domainName" ).asText(), new ContainerQuota( parseSize( json ) ),
                 json.get( "hostId" ).asText() );
 
         local = localContainerIds.contains( getId() );
@@ -109,7 +113,7 @@ class ProxyEnvironmentContainer extends EnvironmentContainerImpl
     }
 
 
-    void setProxyContainer( Host proxyContainer )
+    void setProxyContainer( ContainerHost proxyContainer )
     {
         this.proxyContainer = proxyContainer;
 
@@ -147,9 +151,9 @@ class ProxyEnvironmentContainer extends EnvironmentContainerImpl
 
     private RequestBuilder wrapForProxy( RequestBuilder requestBuilder )
     {
-        String proxyIp = proxyContainer.getHostInterfaces().getAll().iterator().next().getIp();
+        String proxyIp = proxyContainer.getIp();
 
-        String targetHostIp = getHostInterfaces().getAll().iterator().next().getIp();
+        String targetHostIp = getIp();
 
         if ( targetHostIp.contains( "/" ) )
         {
@@ -158,10 +162,70 @@ class ProxyEnvironmentContainer extends EnvironmentContainerImpl
 
         Request req = requestBuilder.build( "id" );
 
-        String command = String.format( "ssh root@%s %s", targetHostIp, req.getCommand() );
+        String command = String.format( "ssh root@%s %s", targetHostIp, req.getCommand().replace( "\\", "\\\\" ) );
 
         LOG.debug( "Command wrapped '{}' to send via {}", command, proxyIp );
 
         return new RequestBuilder( command ).withTimeout( requestBuilder.getTimeout() );
+    }
+
+
+    @Override
+    public ContainerHostState getState()
+    {
+        if ( isLocal() )
+        {
+            return super.getState();
+        }
+        else
+        {
+            //TODO for remote containers obtain from Hub metadata
+            return ContainerHostState.UNKNOWN;
+        }
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        if ( isLocal() )
+        {
+            return super.getRawQuota();
+        }
+        else
+        {
+            //TODO for remote containers obtain from Hub metadata
+            return null;
+        }
+    }
+
+
+    @Override
+    public SshKeys getAuthorizedKeys() throws PeerException
+    {
+        if ( isLocal() )
+        {
+            return super.getAuthorizedKeys();
+        }
+        else
+        {
+            //TODO for remote containers obtain from Hub metadata
+            return new SshKeys();
+        }
+    }
+
+
+    @Override
+    public ContainerQuota getQuota() throws PeerException
+    {
+        if ( isLocal() )
+        {
+            return super.getQuota();
+        }
+        else
+        {
+            //TODO for remote containers obtain from Hub metadata
+            return null;
+        }
     }
 }

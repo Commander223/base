@@ -17,6 +17,10 @@ public interface RegistrationRestService
     @Path( "public-key" )
     Response registerPublicKey( String message );
 
+    @POST
+    @Path( "{rhId}/hostname/{hostname}" )
+    Response changeRhHostname( @PathParam( "rhId" ) String rhId, @PathParam( "hostname" ) String hostname );
+
 
     @POST
     @Path( "requests/{id}/approve" )
@@ -31,6 +35,10 @@ public interface RegistrationRestService
     @POST
     @Path( "requests/{id}/remove" )
     Response removeRequest( @PathParam( "id" ) String requestId );
+
+    @POST
+    @Path( "requests/{id}/unblock" )
+    Response unblockRequest( @PathParam( "id" ) String requestId );
 
 
     @POST

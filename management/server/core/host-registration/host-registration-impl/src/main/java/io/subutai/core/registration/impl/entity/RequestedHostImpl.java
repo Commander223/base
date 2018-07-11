@@ -13,7 +13,6 @@ import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
 import javax.persistence.FetchType;
 import javax.persistence.Id;
-import javax.persistence.JoinColumn;
 import javax.persistence.Lob;
 import javax.persistence.OneToMany;
 import javax.persistence.Table;
@@ -21,8 +20,13 @@ import javax.persistence.Table;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.Expose;
 
+import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.host.HostArchitecture;
+import io.subutai.common.host.HostInfo;
 import io.subutai.common.host.HostInterface;
+import io.subutai.common.host.InstanceType;
+import io.subutai.common.host.ResourceHostInfo;
+import io.subutai.common.util.CollectionUtil;
 import io.subutai.core.registration.api.ResourceHostRegistrationStatus;
 import io.subutai.core.registration.api.service.ContainerInfo;
 import io.subutai.core.registration.api.service.RequestedHost;
@@ -31,7 +35,7 @@ import io.subutai.core.registration.api.service.RequestedHost;
 @Entity
 @Table( name = "node_resource_host_requests" )
 @Access( AccessType.FIELD )
-public class RequestedHostImpl implements RequestedHost, Serializable
+public class RequestedHostImpl implements RequestedHost, ResourceHostInfo, Serializable
 {
     @Id
     @Column( name = "host_id", nullable = false )
@@ -42,11 +46,14 @@ public class RequestedHostImpl implements RequestedHost, Serializable
     @Expose
     private String hostname;
 
-    @JoinColumn( name = "net_interfaces" )
-    @OneToMany( orphanRemoval = true, targetEntity = HostInterfaceImpl.class, cascade = CascadeType.ALL, fetch =
-            FetchType.EAGER )
+    @Column( name = "address" )
     @Expose
-    private Set<HostInterface> interfaces = Sets.newHashSet();
+    private String address;
+
+    @Column( name = "instanceType" )
+    @Enumerated( EnumType.STRING )
+    @Expose
+    private InstanceType instanceType = InstanceType.LOCAL;
 
     @Column( name = "arch" )
     @Enumerated( EnumType.STRING )
@@ -67,6 +74,9 @@ public class RequestedHostImpl implements RequestedHost, Serializable
     @Expose
     private String cert;
 
+    @Column( name = "dateUpdated" )
+    private Long dateUpdated = System.currentTimeMillis();
+
 
     @Column( name = "status" )
     @Enumerated( EnumType.STRING )
@@ -86,6 +96,7 @@ public class RequestedHostImpl implements RequestedHost, Serializable
 
     public RequestedHostImpl( final RequestedHost requestedHost )
     {
+        this.dateUpdated = System.currentTimeMillis();
         this.id = requestedHost.getId();
         this.hostname = requestedHost.getHostname();
         this.arch = requestedHost.getArch();
@@ -99,13 +110,6 @@ public class RequestedHostImpl implements RequestedHost, Serializable
             this.arch = HostArchitecture.AMD64;
         }
 
-        Set<HostInterface> netHostInterfaces = requestedHost.getInterfaces();
-        for ( final HostInterface netHostInterface : netHostInterfaces )
-        {
-            HostInterfaceImpl hostInterfaceImpl = new HostInterfaceImpl( netHostInterface );
-            this.interfaces.add( hostInterfaceImpl );
-        }
-
         Set<ContainerInfo> hostInfoSet = requestedHost.getHostInfos();
         for ( final ContainerInfo containerInfo : hostInfoSet )
         {
@@ -117,6 +121,7 @@ public class RequestedHostImpl implements RequestedHost, Serializable
     }
 
 
+    @Deprecated
     public RequestedHostImpl( final String id, final String hostname, final HostArchitecture arch, final String secret,
                               final String publicKey, final ResourceHostRegistrationStatus status,
                               Set<HostInterface> interfaces )
@@ -128,11 +133,6 @@ public class RequestedHostImpl implements RequestedHost, Serializable
         this.publicKey = publicKey;
         this.status = status;
 
-        for ( final HostInterface anHostInterface : interfaces )
-        {
-            this.interfaces.add( new HostInterfaceImpl( anHostInterface ) );
-        }
-
         if ( this.arch == null )
         {
             this.arch = HostArchitecture.AMD64;
@@ -141,15 +141,12 @@ public class RequestedHostImpl implements RequestedHost, Serializable
 
 
     @Override
-    public Set<HostInterface> getInterfaces()
-    {
-        return interfaces;
-    }
-
-
-    @Override
     public Set<ContainerInfo> getHostInfos()
     {
+        if ( CollectionUtil.isCollectionEmpty( hostInfos ) )
+        {
+            return Sets.newHashSet();
+        }
         return hostInfos;
     }
 
@@ -221,9 +218,40 @@ public class RequestedHostImpl implements RequestedHost, Serializable
     }
 
 
-    public void setInterfaces( final Set<HostInterface> interfaces )
+    @Override
+    public Set<ContainerHostInfo> getContainers()
     {
-        this.interfaces = interfaces;
+        Set<ContainerHostInfo> containerHostInfos = Sets.newHashSet();
+
+        containerHostInfos.addAll( hostInfos );
+
+        return containerHostInfos;
+    }
+
+
+    @Override
+    public InstanceType getInstanceType()
+    {
+        return instanceType;
+    }
+
+
+    @Override
+    public String getAddress()
+    {
+        return address;
+    }
+
+
+    public Long getDateUpdated()
+    {
+        return dateUpdated;
+    }
+
+
+    public void refreshDateUpdated()
+    {
+        this.dateUpdated = System.currentTimeMillis();
     }
 
 
@@ -255,8 +283,20 @@ public class RequestedHostImpl implements RequestedHost, Serializable
     @Override
     public String toString()
     {
-        return "RequestedHostImpl{" + "id='" + id + '\'' + ", hostname='" + hostname + '\'' + ", status=" + status
-                + ", arch=" + arch + ", secret='" + secret + '\'' + ", publicKey='" + publicKey + '\''
-                + ", hostInterfaces=" + interfaces + ", hostInfos=" + hostInfos + ", cert=" + cert + '}';
+        return "RequestedHostImpl{" + "id='" + id + '\'' + ", hostname='" + hostname + '\'' + ", address='" + address
+                + '\'' + ", instanceType=" + instanceType + ", arch=" + arch + ", secret='" + secret + '\''
+                + ", publicKey='" + publicKey + '\'' + ", cert='" + cert + '\'' + ", status=" + status + ", hostInfos="
+                + hostInfos + '}';
+    }
+
+
+    @Override
+    public int compareTo( final HostInfo o )
+    {
+        if ( hostname != null && o != null )
+        {
+            return hostname.compareTo( o.getHostname() );
+        }
+        return -1;
     }
 }

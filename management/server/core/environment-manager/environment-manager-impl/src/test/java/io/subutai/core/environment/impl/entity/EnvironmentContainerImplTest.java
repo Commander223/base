@@ -21,13 +21,13 @@ import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
 import io.subutai.common.host.NullHostInterface;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.protocol.Template;
 import io.subutai.common.settings.Common;
 import io.subutai.core.environment.impl.EnvironmentManagerImpl;
 import io.subutai.core.environment.impl.adapter.EnvironmentAdapter;
 import io.subutai.hub.share.quota.ContainerQuota;
+import io.subutai.hub.share.quota.ContainerSize;
 
 import static junit.framework.TestCase.assertEquals;
 import static junit.framework.TestCase.assertFalse;
@@ -54,7 +54,7 @@ public class EnvironmentContainerImplTest
     private static final String HOSTNAME = "container1";
     private static final ContainerHostState STATE = ContainerHostState.RUNNING;
     private static final String TAG = "tag";
-    private static final int PID = 123;
+    private static final int VLAN = 123;
 
 
     private EnvironmentContainerImpl environmentContainer;
@@ -85,11 +85,11 @@ public class EnvironmentContainerImplTest
 
         ContainerHostInfoModel containerHostInfoModel =
                 new ContainerHostInfoModel( CONTAINER_ID, HOSTNAME, HOSTNAME, hostInterfaces, HostArchitecture.AMD64,
-                        STATE );
+                        STATE, ENV_ID, VLAN );
 
         environmentContainer =
                 spy( new EnvironmentContainerImpl( INITIATOR_ID, PEER_ID, containerHostInfoModel, TEMPLATE_ID,
-                        Common.DEFAULT_DOMAIN_NAME, ContainerSize.SMALL, RH_ID ) );
+                        Common.DEFAULT_DOMAIN_NAME, new ContainerQuota( ContainerSize.SMALL ), RH_ID ) );
 
         doReturn( peer ).when( environmentContainer ).getLocalPeer();
         doReturn( template ).when( peer ).getTemplateById( TEMPLATE_ID );
@@ -156,18 +156,9 @@ public class EnvironmentContainerImplTest
 
 
     @Test
-    public void testDispose() throws Exception
-    {
-        environmentContainer.dispose();
-
-        verify( environmentManager ).destroyContainer( ENV_ID, CONTAINER_ID, false );
-    }
-
-
-    @Test
     public void testDestroy() throws Exception
     {
-        environmentContainer.destroy();
+        environmentContainer.destroy( false );
 
         verify( peer ).destroyContainer( any( ContainerId.class ) );
         verify( environment ).removeEnvironmentPeer( PEER_ID );
@@ -262,7 +253,7 @@ public class EnvironmentContainerImplTest
     @Test
     public void testSetHostname() throws Exception
     {
-        environmentContainer.setHostname( "NEWHOSTNAME" );
+        environmentContainer.setHostname( "NEWHOSTNAME", false );
 
         verify( peer ).setContainerHostname( environmentContainer.getContainerId(), "NEWHOSTNAME" );
     }
@@ -341,15 +332,6 @@ public class EnvironmentContainerImplTest
 
 
     @Test
-    public void testGetProcessResourceUsage() throws Exception
-    {
-        environmentContainer.getProcessResourceUsage( PID );
-
-        verify( peer ).getProcessResourceUsage( environmentContainer.getContainerId(), PID );
-    }
-
-
-    @Test
     public void testGetQuota() throws Exception
     {
         environmentContainer.getQuota();
@@ -374,13 +356,13 @@ public class EnvironmentContainerImplTest
     }
 
 
-    @Test
-    public void testSetContainerSize() throws Exception
-    {
-        environmentContainer.setContainerSize( ContainerSize.HUGE );
-
-        verify( peer ).setContainerSize( environmentContainer.getContainerId(), ContainerSize.HUGE );
-    }
+    //    @Test
+    //    public void testSetContainerSize() throws Exception
+    //    {
+    //        environmentContainer.setContainerQuota( ContainerSize.HUGE );
+    //
+    //        verify( peer ).setContainerQuota( environmentContainer.getContainerId(), ContainerSize.HUGE );
+    //    }
 
 
     @Test

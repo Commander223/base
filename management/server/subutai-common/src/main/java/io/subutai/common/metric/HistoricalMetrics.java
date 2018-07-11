@@ -7,6 +7,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -24,6 +27,9 @@ import io.subutai.hub.share.dto.metrics.NetDto;
 @JsonIgnoreProperties( ignoreUnknown = true )
 public class HistoricalMetrics
 {
+    private static final Logger LOG = LoggerFactory.getLogger( HistoricalMetrics.class );
+
+    private static String CONTAINER_PARTITION = "total";
     @JsonProperty( "startTime" )
     private Date startTime;
 
@@ -89,34 +95,36 @@ public class HistoricalMetrics
 
 
     @JsonIgnore
-    public HostMetricsDto.HostType getHostType()
+    HostMetricsDto.HostType getHostType()
     {
-        HostMetricsDto.HostType result = null;
-        if ( !metrics.isEmpty() && !metrics.get( 0 ).getSeries().isEmpty() )
+        HostMetricsDto.HostType result = HostMetricsDto.HostType.UNKNOWN;
+        if ( metrics != null && !metrics.isEmpty() && ( metrics.get( 0 ).getSeries() != null ) && !( metrics.get( 0 )
+                                                                                                            .getSeries()
+                                                                                                            .isEmpty() ) )
         {
-            if ( metrics.get( 0 ).getSeries().get( 0 ).getName().startsWith( "host_" ) )
+            String name = metrics.get( 0 ).getSeries().get( 0 ).getName();
+            if ( name != null )
             {
-                result = HostMetricsDto.HostType.RESOURCE_HOST;
-            }
-            else
-            {
-                if ( metrics.get( 0 ).getSeries().get( 0 ).getName().startsWith( "lxc_" ) )
+                if ( name.startsWith( "host_" ) )
                 {
-                    result = HostMetricsDto.HostType.CONTAINER_HOST;
+                    result = HostMetricsDto.HostType.RESOURCE_HOST;
+                }
+                else
+                {
+                    if ( name.startsWith( "lxc_" ) )
+                    {
+                        result = HostMetricsDto.HostType.CONTAINER_HOST;
+                    }
                 }
             }
         }
 
-        if ( result == null )
-        {
-            throw new IllegalStateException( "Could not determine host type." );
-        }
         return result;
     }
 
 
     @JsonIgnore
-    public List<Series> getSeriesByType( final SeriesBatch.SeriesType type )
+    List<Series> getSeriesByType( final SeriesBatch.SeriesType type )
     {
         if ( type == null )
         {
@@ -126,15 +134,26 @@ public class HistoricalMetrics
         List<Series> result = new ArrayList<>();
         final HostMetricsDto.HostType hostType = getHostType();
 
-        for ( SeriesBatch batch : metrics )
+        if ( metrics != null )
         {
-            result.addAll( batch.getSeriesByName( type.getName( hostType ) ) );
+            for ( SeriesBatch batch : metrics )
+            {
+                result.addAll( batch.getSeriesByName( type.getName( hostType ) ) );
+            }
         }
+
         return result;
     }
 
 
-    protected void splitSeries()
+    public Map<SeriesBatch.SeriesType, List<Series>> getSeriesMap()
+    {
+        splitSeries();
+        return seriesMap;
+    }
+
+
+    private void splitSeries()
     {
         for ( SeriesBatch.SeriesType type : SeriesBatch.SeriesType.values() )
         {
@@ -149,10 +168,12 @@ public class HistoricalMetrics
         CpuDto cpuDto = new CpuDto();
         cpuDto.setSystem( SeriesHelper.getAvg( series, new Tag( "type", "system" ) ) );
         cpuDto.setUser( SeriesHelper.getAvg( series, new Tag( "type", "user" ) ) );
-        cpuDto.setIdle( SeriesHelper.getAvg( series, new Tag( "type", "idle" ) ) );
-        cpuDto.setIowait( SeriesHelper.getAvg( series, new Tag( "type", "iowait" ) ) );
-        cpuDto.setNice( SeriesHelper.getAvg( series, new Tag( "type", "nice" ) ) );
-
+        if ( getHostType() == HostMetricsDto.HostType.RESOURCE_HOST )
+        {
+            cpuDto.setIdle( SeriesHelper.getAvg( series, new Tag( "type", "idle" ) ) );
+            cpuDto.setIowait( SeriesHelper.getAvg( series, new Tag( "type", "iowait" ) ) );
+            cpuDto.setNice( SeriesHelper.getAvg( series, new Tag( "type", "nice" ) ) );
+        }
         return cpuDto;
     }
 
@@ -161,10 +182,18 @@ public class HistoricalMetrics
     private MemoryDto getMemoryDto( final List<Series> series )
     {
         MemoryDto memoryDto = new MemoryDto();
-        memoryDto.setActive( SeriesHelper.getAvg( series, new Tag( "type", "active" ) ) );
-        memoryDto.setBuffers( SeriesHelper.getAvg( series, new Tag( "type", "buffers" ) ) );
-        memoryDto.setCached( SeriesHelper.getAvg( series, new Tag( "type", "cached" ) ) );
-        memoryDto.setMemFree( SeriesHelper.getAvg( series, new Tag( "type", "memfree" ) ) );
+        if ( getHostType() == HostMetricsDto.HostType.RESOURCE_HOST )
+        {
+            memoryDto.setBuffers( SeriesHelper.getAvg( series, new Tag( "type", "buffers" ) ) );
+            memoryDto.setActive( SeriesHelper.getAvg( series, new Tag( "type", "active" ) ) );
+            memoryDto.setCached( SeriesHelper.getAvg( series, new Tag( "type", "cached" ) ) );
+            memoryDto.setMemFree( SeriesHelper.getAvg( series, new Tag( "type", "memfree" ) ) );
+        }
+        else
+        {
+            memoryDto.setCached( SeriesHelper.getAvg( series, new Tag( "type", "cache" ) ) );
+            memoryDto.setRss( SeriesHelper.getAvg( series, new Tag( "type", "rss" ) ) );
+        }
         return memoryDto;
     }
 
@@ -174,17 +203,43 @@ public class HistoricalMetrics
     {
         Map<String, DiskDto> result = new HashMap<>();
 
-        for ( String mount : HostMetricsDto.RESOURCE_HOST_PARTITIONS )
+        if ( getHostType() == HostMetricsDto.HostType.RESOURCE_HOST )
+        {
+            for ( String mount : SeriesHelper.getTagValues( series, "mount" ) )
+            {
+                DiskDto dto = new DiskDto();
+                dto.setAvailable(
+                        SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", mount ) ) );
+                dto.setTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", mount ) ) );
+                dto.setUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", mount ) ) );
+                result.put( mount, dto );
+            }
+        }
+        else
         {
             DiskDto dto = new DiskDto();
-            dto.setAvailable(
-                    SeriesHelper.getAvg( series, new Tag( "type", "available" ), new Tag( "mount", mount ) ) );
-            dto.setTotal( SeriesHelper.getAvg( series, new Tag( "type", "total" ), new Tag( "mount", mount ) ) );
-            dto.setUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", mount ) ) );
-            result.put( mount, dto );
+            dto.setUsed( SeriesHelper.getAvg( series, new Tag( "type", "used" ), new Tag( "mount", "total" ) ) );
+            result.put( CONTAINER_PARTITION, dto );
         }
 
         return result;
+    }
+
+
+    public double getContainerDiskUsed()
+    {
+        if ( getHostType() == HostMetricsDto.HostType.CONTAINER_HOST )
+        {
+            try
+            {
+                return getDiskDto( seriesMap.get( SeriesBatch.SeriesType.DISK ) ).get( CONTAINER_PARTITION ).getUsed();
+            }
+            catch ( Exception e )
+            {
+                LOG.warn( "Error getting disk metrics: {}", e.getMessage() );
+            }
+        }
+        return 0D;
     }
 
 
@@ -192,16 +247,25 @@ public class HistoricalMetrics
     private Map<String, NetDto> getNetDto( final List<Series> series )
     {
         Map<String, NetDto> result = new HashMap<>();
-        long timeInterval = ( endTime.getTime() - startTime.getTime() ) / 1000;
 
-        for ( String iface : HostMetricsDto.RESOURCE_HOST_INTERFACES )
+        if ( getHostType() == HostMetricsDto.HostType.RESOURCE_HOST )
         {
-            double in = SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "in" ) );
-            double out = SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "out" ) );
-            NetDto dto = new NetDto( iface, in / timeInterval / 1024, out / timeInterval / 1024 );
-
-            result.put( iface, dto );
+            for ( String iface : SeriesHelper.getTagValues( series, "iface" ) )
+            {
+                double in = SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "in" ) );
+                double out = SeriesHelper.getAvg( series, new Tag( "iface", iface ), new Tag( "type", "out" ) );
+                NetDto dto = new NetDto( iface, in, out );
+                result.put( iface, dto );
+            }
         }
+        else
+        {
+            double in = SeriesHelper.getAvg( series, new Tag( "type", "in" ) );
+            double out = SeriesHelper.getAvg( series, new Tag( "type", "out" ) );
+            NetDto dto = new NetDto( "eth0", in, out );
+            result.put( "eth0", dto );
+        }
+
         return result;
     }
 
@@ -211,15 +275,51 @@ public class HistoricalMetrics
     {
         HostMetricsDto result = new HostMetricsDto();
 
-        HostMetricsDto.HostType hostType = getHostType();
-        result.setType( hostType );
-        splitSeries();
+        try
+        {
+            HostMetricsDto.HostType hostType = getHostType();
+            result.setType( hostType );
+            splitSeries();
 
-        result.setCpu( getCpuDto( seriesMap.get( SeriesBatch.SeriesType.CPU ) ) );
-        result.setMemory( getMemoryDto( seriesMap.get( SeriesBatch.SeriesType.MEMORY ) ) );
-        result.setDisk( getDiskDto( seriesMap.get( SeriesBatch.SeriesType.DISK ) ) );
-        result.setNet( getNetDto( seriesMap.get( SeriesBatch.SeriesType.NET ) ) );
+            result.setCpu( getCpuDto( seriesMap.get( SeriesBatch.SeriesType.CPU ) ) );
+            result.setMemory( getMemoryDto( seriesMap.get( SeriesBatch.SeriesType.MEMORY ) ) );
+            result.setDisk( getDiskDto( seriesMap.get( SeriesBatch.SeriesType.DISK ) ) );
+            result.setNet( getNetDto( seriesMap.get( SeriesBatch.SeriesType.NET ) ) );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( "Error parsing metric: {}", e.getMessage() );
+        }
 
         return result;
+    }
+
+
+    public static boolean isZeroMetric( HostMetricsDto hostMetricsDto )
+    {
+        if ( hostMetricsDto.getType() == HostMetricsDto.HostType.CONTAINER_HOST )
+        {
+            //check memory
+            boolean isZero = hostMetricsDto.getCpu().getSystem() == 0D;
+            isZero &= hostMetricsDto.getCpu().getUser() == 0D;
+            //check cpu
+            isZero &= hostMetricsDto.getMemory().getCached() == 0D;
+            isZero &= hostMetricsDto.getMemory().getRss() == 0D;
+            //check disk
+            isZero &= hostMetricsDto.getDisk().get( CONTAINER_PARTITION ) == null
+                    || hostMetricsDto.getDisk().get( CONTAINER_PARTITION ).getUsed() == 0D;
+            //check network
+            isZero &= hostMetricsDto.getNet().get( "eth0" ) == null
+                    || hostMetricsDto.getNet().get( "eth0" ).getIn() == 0D;
+            isZero &= hostMetricsDto.getNet().get( "eth0" ) == null
+                    || hostMetricsDto.getNet().get( "eth0" ).getOut() == 0D;
+
+            return isZero;
+        }
+        else
+        {
+            //for near future we don't skip sending RH metrics
+            return false;
+        }
     }
 }

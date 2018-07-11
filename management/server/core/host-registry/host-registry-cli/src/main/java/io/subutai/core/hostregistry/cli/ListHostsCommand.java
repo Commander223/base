@@ -10,7 +10,6 @@ import org.apache.karaf.shell.commands.Command;
 import com.google.common.base.Preconditions;
 
 import io.subutai.common.host.ContainerHostInfo;
-import io.subutai.common.host.HostInterface;
 import io.subutai.common.host.ResourceHostInfo;
 import io.subutai.common.settings.Common;
 import io.subutai.core.hostregistry.api.HostRegistry;
@@ -46,11 +45,7 @@ public class ListHostsCommand extends SubutaiShellCommandSupport
             System.out.println( String.format( "%s\t%s", resourceHostInfo.getHostname(),
                     abbreviate ? StringUtils.abbreviate( resourceHostInfo.getId(), 7 ) : resourceHostInfo.getId() ) );
 
-            System.out.println( "\tNetwork interfaces:" );
-            for ( HostInterface hostInterface : resourceHostInfo.getHostInterfaces().getAll() )
-            {
-                System.out.println( String.format( "\t\t%s: %s", hostInterface.getName(), hostInterface.getIp() ) );
-            }
+            System.out.println( String.format( "\tIp address: %s", resourceHostInfo.getAddress() ) );
 
             System.out.println( "\tContainers:" );
             Set<ContainerHostInfo> containerHostInfos = resourceHostInfo.getContainers();
@@ -62,10 +57,10 @@ public class ListHostsCommand extends SubutaiShellCommandSupport
                         containerHostInfo.getHostname() :
                         containerHostInfo.getHostname() + " [ " + containerHostInfo.getContainerName() + " ]";
 
-                System.out.println( String.format( "\t\t%s\t%s\t%s\t%s", hostname,
+                System.out.println( String.format( "\t\t%s\t%s\t%s\t%s\t%s", hostname,
                         abbreviate ? StringUtils.abbreviate( containerHostInfo.getId(), 7 ) : containerHostInfo.getId(),
                         containerHostInfo.getHostInterfaces().findByName( Common.DEFAULT_CONTAINER_INTERFACE ).getIp(),
-                        containerHostInfo.getState() ) );
+                        containerHostInfo.getState(), containerHostInfo.getVlan() ) );
             }
 
             System.out.println( "-------" );

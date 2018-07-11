@@ -1,12 +1,17 @@
 package io.subutai.core.systemmanager.impl;
 
 
+import java.io.File;
+import java.io.FileFilter;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.security.RolesAllowed;
 
@@ -14,6 +19,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.io.comparator.LastModifiedFileComparator;
+import org.apache.commons.lang.StringUtils;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import io.subutai.common.command.CommandException;
 import io.subutai.common.command.CommandResult;
@@ -21,10 +31,14 @@ import io.subutai.common.command.RequestBuilder;
 import io.subutai.common.dao.DaoManager;
 import io.subutai.common.exception.ActionFailedException;
 import io.subutai.common.peer.HostNotFoundException;
+import io.subutai.common.peer.PeerInfo;
 import io.subutai.common.peer.ResourceHost;
 import io.subutai.common.peer.ResourceHostException;
+import io.subutai.common.settings.Common;
 import io.subutai.common.settings.SubutaiInfo;
-import io.subutai.common.settings.SystemSettings;
+import io.subutai.common.util.ServiceLocator;
+import io.subutai.core.environment.api.EnvironmentManager;
+import io.subutai.core.hubmanager.api.HubManager;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.User;
 import io.subutai.core.peer.api.PeerManager;
@@ -52,28 +66,15 @@ public class SystemManagerImpl implements SystemManager
     private DaoManager daoManager;
     private UpdateDao updateDao;
 
-    private SystemSettings systemSettings;
 
     private volatile boolean isUpdateInProgress = false;
-
-
-    public SystemManagerImpl()
-    {
-        this.systemSettings = getSystemSettings();
-    }
-
-
-    private SystemSettings getSystemSettings()
-    {
-        return new SystemSettings();
-    }
 
 
     @Override
     @RolesAllowed( "System-Management|Read" )
     public SystemInfo getSystemInfo()
     {
-        SystemInfo pojo = new SystemInfoPojo();
+        SystemInfoPojo pojo = new SystemInfoPojo();
 
         pojo.setGitCommitId( SubutaiInfo.getCommitId() );
         pojo.setGitBranch( SubutaiInfo.getBranch() );
@@ -89,12 +90,21 @@ public class SystemManagerImpl implements SystemManager
             ResourceHost host = peerManager.getLocalPeer().getManagementHost();
             pojo.setRhVersion( host.getRhVersion().replace( "Subutai version", "" ).trim() );
             pojo.setP2pVersion( host.getP2pVersion().replace( "p2p Cloud project", "" ).trim() );
+            pojo.setOsName( host.getOsName().trim() );
         }
         catch ( HostNotFoundException | ResourceHostException e )
         {
-            LOG.warn( e.getMessage() );
+            LOG.error( "Error getting system info: {}", e.getMessage() );
 
-            pojo.setRhVersion( "No RH connected" );
+            if ( StringUtils.isBlank( pojo.getRhVersion() ) )
+            {
+                pojo.setRhVersion( "Failed to obtain version" );
+            }
+
+            if ( StringUtils.isBlank( pojo.getP2pVersion() ) )
+            {
+                pojo.setP2pVersion( "Failed to obtain version" );
+            }
 
             return pojo;
         }
@@ -131,12 +141,15 @@ public class SystemManagerImpl implements SystemManager
     @RolesAllowed( "System-Management|Read" )
     public NetworkSettings getNetworkSettings() throws ConfigurationException
     {
-        NetworkSettings pojo = new NetworkSettingsPojo();
+        NetworkSettingsPojo pojo = new NetworkSettingsPojo();
 
-        pojo.setPublicUrl( systemSettings.getPublicUrl() );
-        pojo.setPublicSecurePort( systemSettings.getPublicSecurePort() );
-        pojo.setStartRange( systemSettings.getP2pPortStartRange() );
-        pojo.setEndRange( systemSettings.getP2pPortEndRange() );
+        PeerInfo localPeerInfo = peerManager.getLocalPeer().getPeerInfo();
+        pojo.setPublicUrl( localPeerInfo.getPublicUrl() );
+        pojo.setPublicSecurePort( localPeerInfo.getPublicSecurePort() );
+        pojo.setUseRhIp( !localPeerInfo.isManualSetting() );
+        pojo.setStartRange( Integer.parseInt( Common.P2P_PORT_RANGE_START ) );
+        pojo.setEndRange( Integer.parseInt( Common.P2P_PORT_RANGE_END ) );
+        pojo.setHubIp( Common.HUB_IP );
 
         return pojo;
     }
@@ -144,15 +157,14 @@ public class SystemManagerImpl implements SystemManager
 
     @Override
     @RolesAllowed( "System-Management|Update" )
-    public void setNetworkSettings( final String publicUrl, final String publicSecurePort, final String startRange,
-                                    final String endRange ) throws ConfigurationException
+    public void setNetworkSettings( final String publicUrl, final String publicSecurePort, final boolean useRhIp )
+            throws ConfigurationException
     {
         try
         {
-            peerManager.setPublicUrl( peerManager.getLocalPeer().getId(), publicUrl,
-                    Integer.parseInt( publicSecurePort ) );
-
-            systemSettings.setP2pPortRange( Integer.parseInt( startRange ), Integer.parseInt( endRange ) );
+            peerManager
+                    .setPublicUrl( peerManager.getLocalPeer().getId(), publicUrl, Integer.parseInt( publicSecurePort ),
+                            useRhIp );
         }
         catch ( Exception e )
         {
@@ -163,16 +175,50 @@ public class SystemManagerImpl implements SystemManager
 
     @Override
     @RolesAllowed( "System-Management|Read" )
-    public AdvancedSettings getAdvancedSettings()
+    public AdvancedSettings getAdvancedSettings( String logFile )
     {
-        AdvancedSettings pojo = new AdvancedSettingsPojo();
+        AdvancedSettingsPojo pojo = new AdvancedSettingsPojo();
 
         String content;
         try
         {
-            content = new String( Files.readAllBytes(
-                    Paths.get( System.getenv( "SUBUTAI_APP_DATA_PATH" ) + "/data/log/karaf.log" ) ) );
+            Path karafLogDirPath = Paths.get( System.getenv( "SUBUTAI_APP_DATA_PATH" ), "/data/log/" );
+
+            Path currentKarafLogFilePath;
+            if ( Strings.isNullOrEmpty( logFile ) )
+            {
+                currentKarafLogFilePath = karafLogDirPath.resolve( "karaf.log" );
+            }
+            else
+            {
+                currentKarafLogFilePath = karafLogDirPath.resolve( logFile );
+            }
+
+            content = new String( Files.readAllBytes( currentKarafLogFilePath ) );
+
             pojo.setKarafLogs( content );
+
+            File[] karafLogFiles = karafLogDirPath.toFile().listFiles( new FileFilter()
+            {
+                @Override
+                public boolean accept( final File pathname )
+                {
+                    return pathname.isFile() && pathname.getName().startsWith( "karaf.log" );
+                }
+            } );
+
+            assert karafLogFiles != null;
+
+            Arrays.sort( karafLogFiles, LastModifiedFileComparator.LASTMODIFIED_REVERSE );
+
+            List<String> karafLogFileNames = Lists.newArrayList();
+
+            for ( File karafLogFile : karafLogFiles )
+            {
+                karafLogFileNames.add( karafLogFile.getName() );
+            }
+
+            pojo.setKarafLogFiles( karafLogFileNames );
         }
         catch ( IOException e )
         {
@@ -187,15 +233,18 @@ public class SystemManagerImpl implements SystemManager
     @RolesAllowed( "System-Management|Read" )
     public SystemInfo getManagementUpdates()
     {
-        SystemInfo info = getSystemInfo();
+        SystemInfoPojo info = ( SystemInfoPojo ) getSystemInfo();
 
         try
         {
             ResourceHost host = peerManager.getLocalPeer().getManagementHost();
 
-            CommandResult result = host.execute( new RequestBuilder( "subutai update management -c" ) );
+            CommandResult result = host.execute(
+                    new RequestBuilder( "subutai update management -c ; subutai update rh -c" ).withTimeout(
+                            ( int ) TimeUnit.MINUTES.toSeconds(
+                                    Common.MH_UPDATE_CHECK_TIMEOUT_MIN + Common.RH_UPDATE_CHECK_TIMEOUT_MIN ) ) );
 
-            if ( result.hasSucceeded() )
+            if ( result.getStdOut().contains( "Update is available" ) )
             {
                 info.setUpdatesAvailable( true );
             }
@@ -225,30 +274,37 @@ public class SystemManagerImpl implements SystemManager
     @RolesAllowed( "System-Management|Update" )
     public boolean updateManagement()
     {
-        if ( isUpdateInProgress )
+
+        if ( isUpdateInProgress || isEnvironmentWorkflowInProgress() )
         {
             return false;
         }
+
+        notifyHubThatPeerIsOffline();
 
         isUpdateInProgress = true;
 
         try
         {
-
             ResourceHost host = peerManager.getLocalPeer().getManagementHost();
 
-            UpdateEntity updateEntity = new UpdateEntity( SubutaiInfo.getVersion(), SubutaiInfo.getCommitId() );
+            UpdateEntity updateEntity =
+                    new UpdateEntity( SubutaiInfo.getVersion(), SubutaiInfo.getCommitId(), SubutaiInfo.getBuildTime() );
 
             updateDao.persist( updateEntity );
 
-            CommandResult result =
-                    host.execute( new RequestBuilder( "subutai update management" ).withTimeout( 10000 ) );
+            boolean rhUpdated = updateRH();
 
-            if ( result.hasSucceeded() )
+            CommandResult result = host.execute( new RequestBuilder( "subutai update management" )
+                    .withTimeout( ( int ) TimeUnit.MINUTES.toSeconds( Common.MH_UPDATE_TIMEOUT_MIN ) ) );
+
+            boolean mhUpdated = !result.getStdOut().contains( "No update is available" ) && result.hasSucceeded();
+
+            if ( mhUpdated || rhUpdated )
             {
                 updateEntity.setCurrentVersion( "No change" );
 
-                updateEntity.setCurrentCommitId( "Other (system) components updated" );
+                updateEntity.setCurrentCommitId( "System components updated" );
 
                 updateDao.update( updateEntity );
             }
@@ -257,7 +313,7 @@ public class SystemManagerImpl implements SystemManager
                 updateDao.remove( updateEntity.getId() );
             }
 
-            return result.hasSucceeded();
+            return mhUpdated;
         }
         catch ( Exception e )
         {
@@ -273,10 +329,32 @@ public class SystemManagerImpl implements SystemManager
 
 
     @Override
-    @RolesAllowed( "System-Management|Read" )
     public boolean isUpdateInProgress()
     {
         return isUpdateInProgress;
+    }
+
+
+    @Override
+    public boolean isEnvironmentWorkflowInProgress()
+    {
+        EnvironmentManager environmentManager = ServiceLocator.lookup( EnvironmentManager.class );
+
+        return !environmentManager.getActiveWorkflows().isEmpty() || !peerManager.getLocalPeer().getTasks().isEmpty();
+    }
+
+
+    public void notifyHubThatPeerIsOffline()
+    {
+        HubManager hubManager = ServiceLocator.lookup( HubManager.class );
+        hubManager.notifyHubThatPeerIsOffline();
+    }
+
+
+    @Override
+    public String getHubIp()
+    {
+        return Common.HUB_IP;
     }
 
 
@@ -292,7 +370,14 @@ public class SystemManagerImpl implements SystemManager
             {
                 updateEntity.setCurrentVersion( "No change" );
 
-                updateEntity.setCurrentCommitId( "Probably update was interrupted" );
+                if ( Objects.equals( updateEntity.getBuildTime(), SubutaiInfo.getBuildTime() ) )
+                {
+                    updateEntity.setCurrentCommitId( "Probably update was interrupted" );
+                }
+                else
+                {
+                    updateEntity.setCurrentCommitId( "Console was rebuilt" );
+                }
             }
             else
             {
@@ -342,5 +427,20 @@ public class SystemManagerImpl implements SystemManager
     public void setPeerManager( final PeerManager peerManager )
     {
         this.peerManager = peerManager;
+    }
+
+
+    private boolean updateRH()
+    {
+        try
+        {
+            return peerManager.getLocalPeer().getManagementHost().update();
+        }
+        catch ( HostNotFoundException e )
+        {
+            LOG.error( "Error updating MH: {}", e.getMessage() );
+        }
+
+        return false;
     }
 }

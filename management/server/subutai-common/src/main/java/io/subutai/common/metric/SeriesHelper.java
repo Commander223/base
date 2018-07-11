@@ -2,6 +2,9 @@ package io.subutai.common.metric;
 
 
 import java.util.List;
+import java.util.Set;
+
+import com.google.common.collect.Sets;
 
 
 public class SeriesHelper
@@ -45,7 +48,25 @@ public class SeriesHelper
     }
 
 
-    public static Double getLast( final List<Series> series, final Tag... tags )
+    public static Set<String> getTagValues( final List<Series> series, String tag )
+    {
+        Set<String> tagValues = Sets.newHashSet();
+
+        for ( Series s : series )
+        {
+            String tagValue = s.getTags().get( tag );
+
+            if ( tagValue != null )
+            {
+                tagValues.add( tagValue );
+            }
+        }
+
+        return tagValues;
+    }
+
+
+    static Double getLast( final List<Series> series, final Tag... tags )
     {
         Double result = null;
 

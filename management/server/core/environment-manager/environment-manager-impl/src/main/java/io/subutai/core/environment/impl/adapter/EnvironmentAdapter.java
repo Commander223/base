@@ -1,7 +1,6 @@
 package io.subutai.core.environment.impl.adapter;
 
 
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -10,10 +9,16 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.gson.reflect.TypeToken;
 
+import io.subutai.common.command.CommandException;
+import io.subutai.common.command.RequestBuilder;
+import io.subutai.common.environment.ContainerHostNotFoundException;
 import io.subutai.common.environment.EnvironmentPeer;
 import io.subutai.common.environment.EnvironmentStatus;
 import io.subutai.common.environment.RhP2pIp;
+import io.subutai.common.exception.ActionFailedException;
+import io.subutai.common.host.ContainerHostInfo;
 import io.subutai.common.peer.EnvironmentContainerHost;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.peer.PeerException;
@@ -57,38 +62,56 @@ public class EnvironmentAdapter
     }
 
 
+    public HubAdapter getHubAdapter()
+    {
+        return hubAdapter;
+    }
+
+
     public HubEnvironment get( String id )
     {
-
-        for ( HubEnvironment e : getEnvironments( identityManager.isTenantManager() ) )
+        try
         {
-            if ( e.getId().equals( id ) )
+            for ( HubEnvironment e : getEnvironments( identityManager.isTenantManager() ) )
             {
-                return e;
+                if ( e.getId().equals( id ) )
+                {
+                    return e;
+                }
             }
+        }
+        catch ( ActionFailedException e )
+        {
+            log.warn( e.getMessage() );
         }
 
         return null;
     }
 
 
+    /**
+     * Returns hub environments for this peer. Throws {@code ActionFailedException} if requests to Hub failed for some
+     * reason
+     *
+     * @param all true: returns all environments, false: returns current user environments
+     */
     public Set<HubEnvironment> getEnvironments( boolean all )
     {
         if ( !canWorkWithHub() )
         {
-            return Collections.emptySet();
+            throw new ActionFailedException( "Peer is not registered with Hub or connection to Hub failed" );
         }
 
         String json = all ? hubAdapter.getAllEnvironmentsForPeer() : hubAdapter.getUserEnvironmentsForPeer();
 
         if ( json == null )
         {
-            return Collections.emptySet();
+            throw new ActionFailedException( "Failed to obtain environments from Hub" );
         }
 
         log.debug( "Json with environments: {}", json );
 
-        HashSet<HubEnvironment> envs = new HashSet<>();
+        Set<HubEnvironment> envs = new HashSet<>();
 
         try
         {
@@ -101,10 +124,44 @@ public class EnvironmentAdapter
         }
         catch ( Exception e )
         {
-            log.error( "Error to parse json: ", e );
+            log.error( "Failed to parse environments from Hub", e );
+
+            throw new ActionFailedException( "Failed to parse environments from Hub: " + e.getMessage() );
         }
 
         return envs;
+    }
+
+
+    public Set<String> getDeletedEnvironmentsIds()
+    {
+
+        if ( !canWorkWithHub() )
+        {
+            throw new ActionFailedException( "Peer is not registered with Hub or connection to Hub failed" );
+        }
+
+        String json = hubAdapter.getDeletedEnvironmentsForPeer();
+
+        if ( json == null )
+        {
+            throw new ActionFailedException( "Failed to obtain deleted environments from Hub" );
+        }
+
+        log.debug( "Json with deleted environments: {}", json );
+
+        try
+        {
+            return io.subutai.common.util.JsonUtil.fromJson( json, new TypeToken<Set<String>>()
+            {
+            }.getType() );
+        }
+        catch ( Exception e )
+        {
+            log.error( "Error to parse json: ", e );
+
+            throw new ActionFailedException( "Failed to parse deleted environments from Hub: " + e.getMessage() );
+        }
     }
 
 
@@ -115,11 +172,17 @@ public class EnvironmentAdapter
             return;
         }
 
+        if ( env.getContainerHosts().size() == 1 )
+        {
+            throw new IllegalStateException(
+                    "Environment will have 0 containers after modification. Please, destroy environment instead" );
+        }
+
         try
         {
             EnvironmentContainerHost ch = env.getContainerHostById( containerId );
 
-            ( ( EnvironmentContainerImpl ) ch ).destroy();
+            ( ( EnvironmentContainerImpl ) ch ).destroy( false );
 
             hubAdapter.destroyContainer( env.getId(), containerId );
         }
@@ -130,21 +193,31 @@ public class EnvironmentAdapter
     }
 
 
-    public void removeEnvironment( LocalEnvironment env )
+    public boolean removeEnvironment( String envId )
     {
         if ( !canWorkWithHub() )
         {
-            return;
+            return false;
         }
 
         try
         {
-            hubAdapter.removeEnvironment( env.getId() );
+            hubAdapter.removeEnvironment( envId );
+
+            return true;
         }
         catch ( Exception e )
         {
             log.error( "Error to remove environment: ", e );
         }
+
+        return false;
+    }
+
+
+    public boolean removeEnvironment( LocalEnvironment env )
+    {
+        return removeEnvironment( env.getId() );
     }
 
 
@@ -154,7 +227,7 @@ public class EnvironmentAdapter
     }
 
 
-    private boolean isHubReachable()
+    public boolean isHubReachable()
     {
         HubManager hubManager = ServiceLocator.getServiceOrNull( HubManager.class );
 
@@ -162,24 +235,24 @@ public class EnvironmentAdapter
     }
 
 
-    private boolean isRegisteredWithHub()
+    public boolean isRegisteredWithHub()
     {
         HubManager hubManager = ServiceLocator.getServiceOrNull( HubManager.class );
 
-        return hubManager != null && hubManager.isRegistered();
+        return hubManager != null && hubManager.isRegisteredWithHub();
     }
 
 
-    public void uploadEnvironment( LocalEnvironment env )
+    public boolean uploadEnvironment( LocalEnvironment env )
     {
         if ( !canWorkWithHub() )
         {
-            return;
+            return false;
         }
 
         if ( env.getStatus() != EnvironmentStatus.HEALTHY )
         {
-            return;
+            return false;
         }
 
         try
@@ -191,10 +264,14 @@ public class EnvironmentAdapter
             environmentContainersToJson( env, envJson );
 
             hubAdapter.uploadEnvironment( envJson.toString() );
+
+            return true;
         }
         catch ( Exception e )
         {
             log.debug( "Error to post local environment to Hub: ", e );
+
+            return false;
         }
     }
 
@@ -219,9 +296,7 @@ public class EnvironmentAdapter
 
             environmentContainersToJson( env, envJson );
 
-            hubAdapter.uploadPeerOwnerEnvironment( envJson.toString() );
-
-            return true;
+            return hubAdapter.uploadPeerOwnerEnvironment( envJson.toString() );
         }
         catch ( Exception e )
         {
@@ -266,6 +341,8 @@ public class EnvironmentAdapter
 
             peerJson.put( "hostname", ch.getHostname() );
 
+            peerJson.put( "containerName", ch.getContainerName() );
+
             peerJson.put( "state", ch.getState().toString() );
 
             peerJson.put( "template", ch.getTemplateName() );
@@ -276,7 +353,7 @@ public class EnvironmentAdapter
 
             peerJson.put( "rhId", ch.getResourceHostId().getId() );
 
-            String ip = ch.getHostInterfaces().getAll().iterator().next().getIp();
+            String ip = ch.getIp();
 
             peerJson.put( "ip", ip );
 
@@ -344,5 +421,53 @@ public class EnvironmentAdapter
 
             rhs.add( rhJson );
         }
+    }
+
+
+    public void handleHostnameChange( final ContainerHostInfo containerInfo, final String previousHostname,
+                                      final String currentHostname )
+    {
+        HubEnvironment environment = null;
+
+        for ( HubEnvironment hubEnvironment : getEnvironments( true ) )
+        {
+            try
+            {
+                hubEnvironment.getContainerHostById( containerInfo.getId() );
+                environment = hubEnvironment;
+
+                break;
+            }
+            catch ( ContainerHostNotFoundException e )
+            {
+                //ignore
+            }
+        }
+
+        if ( environment == null )
+        {
+            return;
+        }
+
+        for ( EnvironmentContainerHost containerHost : environment.getContainerHosts() )
+        {
+            try
+            {
+                containerHost.execute( getChangeHostnameInEtcHostsCommand( previousHostname, currentHostname ) );
+            }
+            catch ( CommandException e )
+            {
+                log.warn( "Error updating /etc/hosts file on container {} with container hostname change: [{}] -> [{}]",
+                        containerHost.getHostname(), previousHostname, currentHostname );
+            }
+        }
+    }
+
+
+    private RequestBuilder getChangeHostnameInEtcHostsCommand( String oldHostname, String newHostname )
+    {
+        return new RequestBuilder(
+                String.format( "sed -i 's/\\b%1$s\\b/%2$s/g' %4$s && sed -i 's/\\b%1$s.%3$s\\b/%2$s.%3$s/g' %4$s",
+                        oldHostname, newHostname, Common.DEFAULT_DOMAIN_NAME, Common.ETC_HOSTS_FILE ) );
     }
 }

@@ -14,6 +14,7 @@ import org.mockito.runners.MockitoJUnitRunner;
 
 import com.google.common.collect.Sets;
 
+import io.subutai.common.command.CommandCallback;
 import io.subutai.common.command.CommandException;
 import io.subutai.common.command.CommandResult;
 import io.subutai.common.command.CommandUtil;
@@ -24,6 +25,7 @@ import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
 import io.subutai.common.host.ResourceHostInfo;
 import io.subutai.common.peer.ContainerHost;
+import io.subutai.common.peer.ContainerInfo;
 import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.Peer;
 import io.subutai.common.peer.ResourceHostException;
@@ -38,7 +40,9 @@ import static junit.framework.TestCase.fail;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,14 +58,16 @@ public class ResourceHostEntityTest
     private static final HostArchitecture ARCH = HostArchitecture.AMD64;
     private static final String INTERFACE_NAME = "eth0";
     private static final String IP = "127.0.0.1/24";
-    private static final String CONTAINER_STATUS_STARTED =
-            "NAME                               STATE    HWADDR             IP" + "            Interface\n" +
-                    "---------------------------------\n"
-                    + "qwer                               RUNNING  00:16:3e:83:2c:2e  192.168.22.5  eth0";
-    private static final String CONTAINER_STATUS_STOPPED =
-            "NAME                               STATE    HWADDR             IP" + "            Interface\n" +
-                    "---------------------------------\n"
-                    + "qwer                               STOPPED  00:16:3e:83:2c:2e  192.168.22.5  eth0";
+    private static final String CONTAINER_STATUS_STARTED = String.format(
+            "NAME                               STATE    HWADDR             IP" + "            Interface%1$s"
+                    + "---------------------------------%1$s"
+                    + "qwer                               RUNNING  00:16:3e:83:2c:2e  192.168.22.5  eth0",
+            System.lineSeparator() );
+    private static final String CONTAINER_STATUS_STOPPED = String.format(
+            "NAME                               STATE    HWADDR             IP" + "            Interface%1$s"
+                    + "---------------------------------%1$s"
+                    + "qwer                               STOPPED  00:16:3e:83:2c:2e  192.168.22.5  eth0",
+            System.lineSeparator() );
     @Mock
     ContainerHostEntity containerHost;
     @Mock
@@ -101,16 +107,18 @@ public class ResourceHostEntityTest
         when( hostInfo.getId() ).thenReturn( HOST_ID );
         when( hostInfo.getHostname() ).thenReturn( HOSTNAME );
         when( hostInfo.getArch() ).thenReturn( ARCH );
-        when( hostInfo.getHostInterfaces() ).thenReturn( hostInterfaces );
-        when( anHostInterface.getName() ).thenReturn( INTERFACE_NAME );
-        when( anHostInterface.getIp() ).thenReturn( IP );
 
-        resourceHostEntity = new ResourceHostEntity( PEER_ID, hostInfo );
+        resourceHostEntity = spy( new ResourceHostEntity( PEER_ID, hostInfo ) );
         resourceHostEntity.setPeer( peer );
+        doReturn( true ).when( resourceHostEntity ).isManagementHost();
         resourceHostEntity.commandUtil = commandUtil;
         when( containerHost.getId() ).thenReturn( CONTAINER_HOST_ID );
         when( containerHost.getHostname() ).thenReturn( CONTAINER_HOST_NAME );
+        when( containerHost.getContainerName() ).thenReturn( CONTAINER_HOST_NAME );
         when( commandUtil.execute( any( RequestBuilder.class ), eq( resourceHostEntity ) ) )
+                .thenReturn( commandResult );
+        when( commandUtil
+                .execute( any( RequestBuilder.class ), eq( resourceHostEntity ), any( CommandCallback.class ) ) )
                 .thenReturn( commandResult );
     }
 
@@ -325,6 +333,33 @@ public class ResourceHostEntityTest
         ContainerHost containerHost1 = resourceHostEntity.getContainerHostById( CONTAINER_HOST_ID );
 
         assertEquals( containerHost, containerHost1 );
+    }
+
+
+    @Test
+    public void testExportTemplate() throws Exception
+    {
+        doReturn( "time=\"2017-04-11 10:01:36\" level=info msg=\"tag-test-template exported to "
+                + "/var/snap/subutai-dev/common/lxc/tmpdir/tag-test-template-subutai-template_4.0.0_amd64.tar"
+                + ".gz\" \n"
+                + "time=\"2017-04-11 10:01:38\" level=info msg=\"Template uploaded, "
+                + "hash:7d42f1d084c405b482938bb2620cce77 md5:asdfadfadsf size:123 parent:'foo:dilshat:1.0.0'\"" )
+                .when( commandResult ).getStdOut();
+
+        resourceHostEntity.exportTemplate( "foo", "foo-template", "1.0.0", false, "token" );
+    }
+
+
+    @Test
+    public void testListExistingContainersInfo() throws Exception
+    {
+        doReturn( "NAME\t\tSTATE\tIP\t\tInterface\n" + "----\t\t-----\t--\t\t---------\n"
+                + "foo\t\tRUNNING\t10.10.10.221\teth0\n" + "management\tRUNNING\t10.10.10.1\teth0" )
+                .when( commandResult ).getStdOut();
+
+        Set<ContainerInfo> containerInfos = resourceHostEntity.listExistingContainersInfo();
+
+        assertEquals( 2, containerInfos.size() );
     }
 }
 

@@ -23,11 +23,10 @@ public interface SystemManager
 
     PeerSettings getPeerSettings();
 
-    void setNetworkSettings( final String publicUrl, final String publicSecurePort, final String startRange,
-                             final String endRange ) throws ConfigurationException;
+    void setNetworkSettings( final String publicUrl, final String publicSecurePort, final boolean userRhIp )
+            throws ConfigurationException;
 
-    AdvancedSettings getAdvancedSettings();
-
+    AdvancedSettings getAdvancedSettings( String logFile );
 
     SystemInfo getManagementUpdates();
 
@@ -36,4 +35,8 @@ public interface SystemManager
     List<UpdateDto> getUpdates();
 
     boolean isUpdateInProgress();
+
+    boolean isEnvironmentWorkflowInProgress();
+
+    String getHubIp();
 }

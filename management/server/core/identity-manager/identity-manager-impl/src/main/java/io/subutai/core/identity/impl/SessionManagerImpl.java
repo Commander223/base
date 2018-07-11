@@ -33,7 +33,7 @@ public class SessionManagerImpl implements SessionManager
 
     //Session Expiration time in mins
     //****************************************
-    private static int SESSION_TIMEOUT = 30;
+    private static int SESSION_TIMEOUT = 60;
 
     //****************************************
     private ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -60,7 +60,7 @@ public class SessionManagerImpl implements SessionManager
             {
                 try
                 {
-                    removeInvalidTokens();
+//                    removeInvalidTokens();
                     invalidateSessions( null );
                 }
                 catch ( Exception e )

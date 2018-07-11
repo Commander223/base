@@ -4,9 +4,6 @@ package io.subutai.core.peer.rest.ui;
 import java.security.AccessControlException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionService;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -20,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Preconditions;
 
 import io.subutai.common.peer.PeerException;
-import io.subutai.common.peer.RegistrationData;
 import io.subutai.common.peer.RegistrationStatus;
 import io.subutai.common.settings.Common;
 import io.subutai.common.util.JsonUtil;
@@ -46,62 +42,55 @@ public class RestServiceImpl implements RestService
     }
 
 
-    private class RegistrationDataDto
-    {
-        private boolean isOnline = false;
-        private RegistrationData registrationData;
-
-
-        public RegistrationDataDto( RegistrationData registrationData )
-        {
-            this.registrationData = registrationData;
-        }
-
-
-        public void setOnline( boolean isOnline )
-        {
-            this.isOnline = isOnline;
-        }
-
-
-        public RegistrationData getRegistrationData()
-        {
-            return registrationData;
-        }
-    }
-
-
     @RolesAllowed( { "Peer-Management|Read" } )
     @Override
     public Response getRegisteredPeers()
     {
         try
         {
-            List<RegistrationDataDto> registrationDatas =
-                    peerManager.getRegistrationRequests().stream().map( RegistrationDataDto::new )
-                               .collect( Collectors.toList() );
+            List<PeerDto> registrationDatas =
+                    peerManager.getRegistrationRequests().stream().map( PeerDto::new ).collect( Collectors.toList() );
+
+            return Response.ok( JsonUtil.toJson( registrationDatas ) ).build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( "Error getting registered peers #getRegisteredPeers", e );
+            return Response.status( Response.Status.INTERNAL_SERVER_ERROR ).entity( e.toString() ).build();
+        }
+    }
+
+
+    @RolesAllowed( { "Peer-Management|Read" } )
+    @Override
+    public Response getRegisteredPeersStates()
+    {
+        try
+        {
+            List<PeerDto> registrationDatas =
+                    peerManager.getRegistrationRequests().stream().map( PeerDto::new ).collect( Collectors.toList() );
 
             if ( !registrationDatas.isEmpty() )
             {
                 ExecutorService taskExecutor =
                         Executors.newFixedThreadPool( Math.min( Common.MAX_EXECUTOR_SIZE, registrationDatas.size() ) );
 
-                List<CompletableFuture> futures = registrationDatas.stream().map( d -> CompletableFuture.runAsync( () ->
-                {
+                List<CompletableFuture> futures =
+                        registrationDatas.stream().map( d -> CompletableFuture.runAsync( () -> {
 
-                    if ( d.getRegistrationData().getStatus() == RegistrationStatus.APPROVED )
-                    {
-                        try
-                        {
-                            d.setOnline(
-                                    peerManager.getPeer( d.getRegistrationData().getPeerInfo().getId() ).isOnline() );
-                        }
-                        catch ( PeerException e )
-                        {
-                            LOGGER.error( "Exceptions getting peer status", e );
-                        }
-                    }
-                }, taskExecutor ) ).collect( Collectors.toList() );
+                            if ( d.getRegistrationData().getStatus() == RegistrationStatus.APPROVED )
+                            {
+                                try
+                                {
+                                    d.setState( peerManager.getPeer( d.getRegistrationData().getPeerInfo().getId() )
+                                                           .isOnline() ? PeerDto.State.ONLINE : PeerDto.State.OFFLINE );
+                                }
+                                catch ( PeerException e )
+                                {
+                                    LOGGER.error( "Exceptions getting peer status", e );
+                                }
+                            }
+                        }, taskExecutor ) ).collect( Collectors.toList() );
 
                 CompletableFuture.allOf( futures.toArray( new CompletableFuture[0] ) ).join();
             }
@@ -110,7 +99,7 @@ public class RestServiceImpl implements RestService
         }
         catch ( Exception e )
         {
-            LOGGER.error( "Error getting registered peers #getRegisteredPeers", e );
+            LOGGER.error( "Error getting registered peers #getRegisteredPeersStates", e );
             return Response.status( Response.Status.INTERNAL_SERVER_ERROR ).entity( e.toString() ).build();
         }
     }
@@ -144,14 +133,9 @@ public class RestServiceImpl implements RestService
     @Override
     public Response rejectForRegistrationRequest( final String peerId, Boolean force )
     {
-        List<RegistrationData> dataList = peerManager.getRegistrationRequests();
-
-        RegistrationData data =
-                dataList.stream().filter( p -> p.getPeerInfo().getId().equals( peerId ) ).findAny().get();
-
         try
         {
-            peerManager.doRejectRequest( data, force );
+            peerManager.doRejectRequest( peerId, force );
         }
         catch ( Exception e )
         {
@@ -173,14 +157,9 @@ public class RestServiceImpl implements RestService
     @Override
     public Response approveForRegistrationRequest( final String peerId, final String keyPhrase )
     {
-        List<RegistrationData> dataList = peerManager.getRegistrationRequests();
-
-        RegistrationData data =
-                dataList.stream().filter( p -> p.getPeerInfo().getId().equals( peerId ) ).findAny().get();
-
         try
         {
-            peerManager.doApproveRequest( keyPhrase, data );
+            peerManager.doApproveRequest( keyPhrase, peerId );
         }
         catch ( Exception e )
         {
@@ -202,14 +181,9 @@ public class RestServiceImpl implements RestService
     @Override
     public Response cancelForRegistrationRequest( final String peerId, Boolean force )
     {
-        List<RegistrationData> dataList = peerManager.getRegistrationRequests();
-
-        RegistrationData data =
-                dataList.stream().filter( p -> p.getPeerInfo().getId().equals( peerId ) ).findAny().get();
-
         try
         {
-            peerManager.doCancelRequest( data, force );
+            peerManager.doCancelRequest( peerId, force );
         }
         catch ( Exception e )
         {
@@ -250,18 +224,14 @@ public class RestServiceImpl implements RestService
         return Response.ok().build();
     }
 
-    @RolesAllowed( { "Peer-Management|Delete", "Peer-Management|Update" } )
+
+    @RolesAllowed( { "Peer-Management|Update" } )
     @Override
-    public Response unregisterForRegistrationRequest( final String peerId, Boolean force )
+    public Response updatePeerUrl( final String peerId, final String ip )
     {
-        List<RegistrationData> dataList = peerManager.getRegistrationRequests();
-
-        RegistrationData data =
-                dataList.stream().filter( p -> p.getPeerInfo().getId().equals( peerId ) ).findAny().get();
-
         try
         {
-            peerManager.doUnregisterRequest( data, force );
+            peerManager.updatePeerUrl( peerId, ip );
         }
         catch ( Exception e )
         {
@@ -278,6 +248,31 @@ public class RestServiceImpl implements RestService
         return Response.ok().build();
     }
 
+
+    @RolesAllowed( { "Peer-Management|Delete", "Peer-Management|Update" } )
+    @Override
+    public Response unregisterForRegistrationRequest( final String peerId, Boolean force )
+    {
+        try
+        {
+            peerManager.doUnregisterRequest( peerId, force );
+        }
+        catch ( Exception e )
+        {
+            if ( e.getClass() == AccessControlException.class )
+            {
+                LOGGER.error( e.getMessage() );
+                return Response.status( Response.Status.INTERNAL_SERVER_ERROR ).
+                        entity( JsonUtil.GSON.toJson( "You don't have permission to perform this operation" ) ).build();
+            }
+
+            return Response.status( Response.Status.BAD_REQUEST ).entity( e.getMessage() ).build();
+        }
+
+        return Response.ok().build();
+    }
+
+
     @RolesAllowed( { "Peer-Management|Read" } )
     @Override
     public Response getResourceHosts()
@@ -285,11 +280,6 @@ public class RestServiceImpl implements RestService
         return Response.ok().entity( JsonUtil.toJson( hostRegistry.getResourceHostsInfo() ) ).build();
     }
 
-
-    protected CompletionService<Boolean> getCompletionService( Executor executor )
-    {
-        return new ExecutorCompletionService<>( executor );
-    }
 
     @RolesAllowed( { "Peer-Management|Read" } )
     @Override
@@ -301,7 +291,7 @@ public class RestServiceImpl implements RestService
         }
         catch ( Exception e )
         {
-            return Response.serverError().entity( JsonUtil.toJson( e.getMessage() ) ).build();
+            return Response.serverError().entity( e.getMessage() ).build();
         }
 
         return Response.ok().build();

@@ -1,251 +1,227 @@
 #!groovy
 
-// Configuring builder:
-// Manage Jenkins -> Global Tool Configuration -> Maven installations -> Add Maven:
-// Name - M3
-// MAVEN_HOME - path to Maven3 home dir
-//
-// Manage Jenkins -> Configure System -> Environment variables
-// SS_TEST_NODE - ip of SS node for smoke tests 
-//
-// Approve methods:
-// in build job log you will see 
-// Scripts not permitted to use new <method>
-// Goto http://jenkins.domain/scriptApproval/
-// and approve methods denied methods
-//
-// TODO:
-// - refactor getVersion function on native groovy
-// - Stash and unstash for built artifacts (?)
-
-import groovy.json.JsonSlurperClassic
-
 notifyBuildDetails = ""
+cdnHost = ""
+jumpServer = ""
+aptRepo = ""
 
-node() {
-	// Send job started notifications
-	try {
-	notifyBuild('STARTED')
+try {
+    notifyBuild('STARTED')
+    String debFileName = "management-${env.BRANCH_NAME}.deb"
+    
+    switch (env.BRANCH_NAME) {
+        case ~/master/: cdnHost = "masterbazaar.subutai.io"; break;
+        case ~/dev/: cdnHost = "devbazaar.subutai.io"; break;
+        case ~/sysnet/: cdnHost = "devbazaar.subutai.io"; break;
+        default: cdnHost = "bazaar.subutai.io"
+    }
 
-	def mvnHome = tool 'M3'
-	def workspace = pwd() 
-	String artifactDir = "/tmp/jenkins/${env.JOB_NAME}"
-	
-	stage("Build management deb/template")
-	// Use maven to to build deb and template files of management
-	notifyBuildDetails = "\nFailed Step - Build management deb/template"
+    switch (env.BRANCH_NAME) {
+        case ~/master/: jumpServer = "mastercdn.subutai.io"; break;
+        case ~/dev/: jumpServer = "devcdn.subutai.io"; break;
+        case ~/sysnet/: jumpServer = "sysnetcdn.subutai.io"; break;
+        default: jumpServer = "cdn.subutai.io"
+    }
 
-	checkout scm
-	def artifactVersion = getVersion("management/pom.xml")
-	String debFileName = "management-${env.BRANCH_NAME}.deb"
-	String templateFileName = "management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz"
+    switch (env.BRANCH_NAME) {
+        case ~/master/: aptRepo = "master"; break;
+        case ~/dev/: aptRepo = "dev"; break;
+        case ~/sysnet/: aptRepo = "sysnet"; break;
+        default: aptRepo = "prod"
+    }
 
-	commitId = sh (script: "git rev-parse HEAD", returnStdout: true)
-	String serenityReportDir = "/var/lib/jenkins/www/serenity/${commitId}"
+    node("console") {
+        deleteDir()
+        def mvnHome = tool 'M3'
+        def workspace = pwd()
 
-	// create dir for artifacts
-	sh """
-		if test ! -d ${artifactDir}; then mkdir -p ${artifactDir}; fi
-	"""
+        stage("Build management deb package") 
+        // Use maven to to build deb and template files of management
+        notifyBuildDetails = "\nFailed Step - Build management deb package"
 
-	// build deb
-	sh """
+        checkout scm
+        def artifactVersion = getVersion("management/pom.xml")
+
+        // build deb
+        sh """
 		cd management
-		export GIT_BRANCH=${env.BRANCH_NAME}
+        git checkout ${env.BRANCH_NAME}
+		sed 's/export HUB_IP=.*/export HUB_IP=${cdnHost}/g' -i server/server-karaf/src/main/assembly/bin/setenv
 		if [[ "${env.BRANCH_NAME}" == "dev" ]]; then
-			${mvnHome}/bin/mvn clean install -P deb -Dgit.branch=${env.BRANCH_NAME} sonar:sonar -Dsonar.branch=${env.BRANCH_NAME}
-		elif [[ "${env.BRANCH_NAME}" == "hotfix-"* ]]; then
 			${mvnHome}/bin/mvn clean install -P deb -Dgit.branch=${env.BRANCH_NAME}
 		else 
 			${mvnHome}/bin/mvn clean install -Dmaven.test.skip=true -P deb -Dgit.branch=${env.BRANCH_NAME}
 		fi		
-		find ${workspace}/management/server/server-karaf/target/ -name *.deb | xargs -I {} mv {} ${artifactDir}/${debFileName}
-	"""
-	// Start MNG-RH Lock
-	lock('rh-node') {
-		// create management template
-		sh """
-			set +x
-			ssh root@gw.intra.lan <<- EOF
+        branch=`git symbolic-ref --short HEAD` && echo "Branch is \$branch"
+        find ${workspace}/management/server/server-karaf/target/ -name *.deb | xargs -I {} cp {} ${workspace}/${debFileName}
+
+        """        
+        
+        sh """
+            cp ${debFileName} /tmp
+            echo "${artifactVersion}" > versionfile
+            cp versionfile /tmp
+        """
+        
+        stash includes: "management-*.deb", name: 'deb'
+        
+        if (env.BRANCH_NAME =='jenkins') {
+            stage("Upload to REPO")
+            notifyBuildDetails = "\nFailed Step - Upload to Repo"
+            deleteDir()
+
+            unstash 'deb'
+
+            //copy deb to repo
+            sh """
+            touch uploading_management
+            scp uploading_management ${debFileName} dak@deb.subutai.io:incoming/sysnet/
+            ssh dak@deb.subutai.io sh /var/reprepro/scripts/scan-incoming.sh sysnet management
+            """
+        }
+        if (env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'dev' || env.BRANCH_NAME == 'sysnet') {
+            stage("Upload to REPO") {
+            notifyBuildDetails = "\nFailed Step - Upload to Repo"
+            deleteDir()
+
+            unstash 'deb'
+
+            //copy deb to repo
+            sh """
+            touch uploading_management
+            scp uploading_management ${debFileName} dak@deb.subutai.io:incoming/${env.BRANCH_NAME}/
+            ssh dak@deb.subutai.io sh /var/reprepro/scripts/scan-incoming.sh ${env.BRANCH_NAME} management
+            """
+            }
+        }
+    }
+
+    node("template-builder") {
+        // CDN auth credentials
+        String user = "jenkins@optimal-dynamics.com"
+        String fingerprint = "877B586E74F170BC4CF6ECABB971E2AC63D23DC9"
+        def authId = sh(script: """
+            curl -s https://${cdnHost}/rest/v1/cdn/token?fingerprint=${fingerprint}
+            """, returnStdout: true)
+        authId = authId.trim()
+        def sign = sh(script: """
+            echo ${authId} | gpg1 --clearsign -u ${user}
+            """, returnStdout: true)
+        sign = sign.trim()
+        String token = sh(script: """
+            curl -s --data-urlencode "request=${sign}"  https://${cdnHost}/rest/v1/cdn/token
+            """, returnStdout: true)
+        token = token.trim()     
+       
+        
+        stage("Build management template")
+        notifyBuildDetails = "\nFailed Step - Build management template"
+                
+        // create management template
+            sh """
+            scp jenkins-master:/tmp/versionfile ~
+            """
+            def version = sh(script: """
+                cat ~/versionfile
+            """, returnStdout: true)
+            version = version.trim()
+        
+            sh """
+		   	set +x
+            set -e
+		    sudo sed 's/URL =.*/URL = ${cdnHost}/gI' -i /etc/subutai/agent.conf
+            sudo sed 's/SshJumpServer =.*/SshJumpServer = ${jumpServer}/gI' -i /etc/subutai/agent.conf
+            set +e
+			sudo subutai destroy management
 			set -e
-			
-			/apps/bin/subutai destroy management
-			/apps/bin/subutai clone openjre8 management
-			/bin/sleep 5
-			/bin/cp /mnt/lib/lxc/jenkins/rootfs/${artifactDir}/${debFileName} /mnt/lib/lxc/management/rootfs/tmp/
-			/apps/bin/lxc-attach -n management -- apt-get update
-			/apps/bin/lxc-attach -n management -- sync
-			/apps/bin/lxc-attach -n management -- apt-get -y --force-yes install --only-upgrade procps
-			/apps/bin/lxc-attach -n management -- apt-get -y --force-yes install --only-upgrade udev
-			/apps/bin/lxc-attach -n management -- apt-get -y --force-yes install --only-upgrade libdbus-1-3
-			/apps/bin/lxc-attach -n management -- apt-get -y --force-yes install subutai-dnsmasq subutai-influxdb curl gorjun
-			/apps/bin/lxc-attach -n management -- dpkg -i /tmp/${debFileName}
-			/apps/bin/lxc-attach -n management -- sync
-			/bin/rm /mnt/lib/lxc/management/rootfs/tmp/${debFileName}
-			/apps/bin/subutai export management -v ${artifactVersion}-${env.BRANCH_NAME}
+            sudo subutai clone debian-stretch management
+			/bin/sleep 20
+			scp jenkins-master:/tmp/${debFileName} /var/lib/lxc/management/rootfs/tmp/
+			sudo subutai attach management "apt-get update && apt-get install dirmngr -y"
+			sudo subutai attach management "apt-key adv --recv-keys --keyserver keyserver.ubuntu.com C6B2AC7FBEB649F1"
+			sudo subutai attach management "echo 'deb http://deb.subutai.io/subutai ${aptRepo} main' > /etc/apt/sources.list.d/subutai-repo.list"
+            sudo subutai attach management "apt-get update"
+			sudo subutai attach management "sync"
+			sudo subutai attach management "apt-get -y install curl influxdb influxdb-certs openjdk-8-jre"
+			sudo cp ~/influxdb.conf /var/lib/lxc/management/rootfs/etc/influxdb/influxdb.conf
+			sudo subutai attach management "dpkg -i /tmp/${debFileName}"
+			sudo subutai attach management "systemctl stop management"
+			sudo subutai attach management "rm -rf /opt/subutai-mng/keystores/"
+			sudo subutai attach management "apt-get clean"
+			sudo subutai attach management "sync"
+            sudo subutai attach management "sed -i "s/weekly/dayly/g" /etc/logrotate.d/rsyslog"
+            sudo subutai attach management "sed -i "/delaycompress/d" /etc/logrotate.d/rsyslog"
+            sudo subutai attach management "sed -i "s/7/3/g" /etc/logrotate.d/rsyslog"
+            sudo subutai attach management "sed -i "s/4/3/g" /etc/logrotate.d/rsyslog"
+  			sudo rm /var/lib/lxc/management/rootfs/tmp/${debFileName}
+            echo "Using CDN token ${token}"  
+            echo "Template version is ${version}"
+            """
+            // Exporting template
+            sh """
+            set -e
+			sudo subutai export management -v "${version}" --local --token "${token}" | grep -Po "{.*}" | tr -d '\\\\' > /tmp/template.json
+            """
+                        
+        stage("Upload management template to IPFS node")
+        notifyBuildDetails = "\nFailed Step - Upload management template to IPFS node"
+        
+            // Pinning template
+            sh """
+            cd /var/cache/subutai/
+            IPFS_PATH=/var/lib/ipfs/node ipfs add -Q management-subutai-template_${version}_amd64.tar.gz > /tmp/ipfs.hash
+            """
 
-			mv /mnt/lib/lxc/tmpdir/management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz /mnt/lib/lxc/jenkins/rootfs/${artifactDir}
-		EOF"""
-	}
+            String NEW_ID = sh(script: """
+            cat /tmp/ipfs.hash
+            """, returnStdout: true)
+            NEW_ID = NEW_ID.trim()
 
-	stage("Update management on test node")
-	// Deploy built template to remore test-server
-	notifyBuildDetails = "\nFailed on Stage - Update management on test node"
+            //remove existing template metadata
+            String OLD_ID = sh(script: """
+            var=\$(curl -s https://${cdnHost}/rest/v1/cdn/template?name=management&verified=true) ; if [[ \$var != "Template not found" ]]; then echo \$var | grep -Po '"id":"\\K([a-zA-Z0-9]+)' ; else echo \$var; fi
+            """, returnStdout: true)
+            OLD_ID = OLD_ID.trim()
 
-	// Start Test-Peer Lock
-	if (env.BRANCH_NAME == 'dev' || env.BRANCH_NAME ==~ /hotfix-.*/) {
-		lock('test-node') {
-			// destroy existing management template on test node and install latest available snap
-			sh """
-				set +x
-				ssh root@${env.SS_TEST_NODE} <<- EOF
-				set -e
-				subutai destroy everything
-				if test -f /var/lib/apps/subutai/current/p2p.save; then rm /var/lib/apps/subutai/current/p2p.save; fi
-				if test -f /mnt/lib/lxc/tmpdir/management-subutai-template_*; then rm /mnt/lib/lxc/tmpdir/management-subutai-template_*; fi
-				/apps/subutai/current/bin/curl https://cdn.subut.ai:8338/kurjun/rest/raw/get?name=subutai_${artifactVersion}_amd64-dev.snap -o /tmp/subutai-latest.snap
-				snappy install --allow-unauthenticated /tmp/subutai-latest.snap
-			EOF"""
+            sh """
+            echo "OLD ID: ${OLD_ID}"
+            if [[ "${OLD_ID}" != "Template not found" ]]; then
+                curl -X DELETE "https://${cdnHost}/rest/v1/cdn/template?token=${token}&id=${OLD_ID}"
+            fi
+            """
 
-			// update rh on test node
-			// def rhUpdateStatus = sh (script: "ssh root@${env.SS_TEST_NODE} /apps/subutai/current/bin/subutai update rh -c | cut -d '=' -f4 | tr -d '\"' | tr -d '\n'", returnStdout: true)
-			// if (rhUpdateStatus == '[Update is available] ') {
-			// 	sh """
-			// 		ssh root@${env.SS_TEST_NODE} <<- EOF
-			// 		set -e
-			// 		subutai update rh
-			// 	"""
-			// }
+            //register template with CDN
+            sh """
+            echo "NEW ID: ${NEW_ID}"
+            sed -i 's/"id":""/"id":"${NEW_ID}"/g' /tmp/template.json
+            template=`cat /tmp/template.json` && curl -d "token=${token}&template=\$template" https://${cdnHost}/rest/v1/cdn/templates
+            """
 
-			// copy generated management template on test node
-			sh """
-				set +x
-				scp ${artifactDir}/management-subutai-template_${artifactVersion}-${env.BRANCH_NAME}_amd64.tar.gz root@${env.SS_TEST_NODE}:/mnt/lib/lxc/tmpdir
-			"""
+            // Pinning templates to EU1 and US1
 
-			// install generated management template
-			sh """
-				set +x
-				ssh root@${env.SS_TEST_NODE} <<- EOF
-				set -e
-				echo -e '[template]\nbranch = ${env.BRANCH_NAME}' > /var/lib/apps/subutai/current/agent.gcfg
-				echo -e '[cdn]\nurl = cdn.local' >> /var/lib/apps/subutai/current/agent.gcfg
-				echo y | subutai import management
-				sed -i -e 's/cdn.local/cdn.subut.ai/g' /mnt/lib/lxc/management/rootfs/etc/apt/sources.list.d/subutai-repo.list
-				if test -f /var/lib/apps/subutai/current/agent.gcfg; then rm /var/lib/apps/subutai/current/agent.gcfg; fi
-			EOF"""
+            sh """
+            ssh ipfs-eu1 "ipfs pin add ${NEW_ID}"
+            ssh ipfs-us1 "ipfs pin add ${NEW_ID}"
+            """
+    }
+} catch (e) {
+        currentBuild.result = "FAILED"
+        throw e
+    } finally {
+        // Success or failure, always send notifications
+        notifyBuild(currentBuild.result, notifyBuildDetails)
+    }
 
-			/* wait until SS starts */
-			timeout(time: 5, unit: 'MINUTES') {
-				sh """
-					set +x
-					echo "Waiting SS"
-					while [ \$(curl -k -s -o /dev/null -w %{http_code} 'https://${env.SS_TEST_NODE}:8443/rest/v1/peer/ready') != "200" ]; do
-						sleep 5
-					done
-				"""
-			}
-
-			stage("Integration tests")
-			// Run Serenity Tests
-			notifyBuildDetails = "\nFailed on Stage - Integration tests\nSerenity Tests Results:\n${env.JENKINS_URL}serenity/${commitId}"
-
-			git url: "https://github.com/subutai-io/playbooks.git"
-			sh """
-				set +e
-				./run_tests_qa.sh -m ${env.SS_TEST_NODE}
-				./run_tests_qa.sh -s all
-				${mvnHome}/bin/mvn integration-test -Dwebdriver.firefox.profile=src/test/resources/profilePgpFF
-				OUT=\$?
-				${mvnHome}/bin/mvn serenity:aggregate
-				cp -rl target/site/serenity ${serenityReportDir}
-				if [ \$OUT -ne 0 ];then
-					exit 1
-				fi
-			"""
-		}
-	}
-
-	if (env.BRANCH_NAME == 'master' || env.BRANCH_NAME == 'dev') {
-		stage("Deploy artifacts on kurjun")
-		// Deploy built and tested artifacts to cdn
-		notifyBuildDetails = "\nFailed on Stage - Deploy artifacts on kurjun"
-
-		// cdn auth creadentials 
-		String url = "https://eu0.cdn.subut.ai:8338/kurjun/rest"
-		String user = "jenkins"
-		def authID = sh (script: """
-			set +x
-			curl -s -k ${url}/auth/token?user=${user} | gpg --clearsign --no-tty
-			""", returnStdout: true)
-		def token = sh (script: """
-			set +x
-			curl -s -k -Fmessage=\"${authID}\" -Fuser=${user} ${url}/auth/token
-			""", returnStdout: true)
-
-		// upload artifacts on cdn
-		// upload deb
-		String responseDeb = sh (script: """
-			set +x
-			curl -s -k https://eu0.cdn.subut.ai:8338/kurjun/rest/apt/info?name=${debFileName}
-			""", returnStdout: true)
-		sh """
-			set +x
-			curl -s -k -Ffile=@${artifactDir}/${debFileName} -Ftoken=${token} ${url}/apt/upload
-		"""
-		// def signatureDeb = sh (script: "curl -s -k -Ffile=@${artifactDir}/${debFileName} -Ftoken=${token} ${url}/apt/upload | gpg --clearsign --no-tty", returnStdout: true)
-		// sh "curl -s -k -Ftoken=${token} -Fsignature=\"${signatureDeb}\" ${url}/auth/sign"
-
-		// delete old deb
-		if (responseDeb != "Not found") {
-			def jsonDeb = jsonParse(responseDeb)	
-			sh """
-				set +x
-				curl -s -k -X DELETE ${url}/apt/delete?id=${jsonDeb["id"]}'&'token=${token}
-			"""
-		}
-
-		// upload template
-		String responseTemplate = sh (script: """
-			set +x
-			curl -s -k https://eu0.cdn.subut.ai:8338/kurjun/rest/template/info?name=management'&'version=${env.BRANCH_NAME}
-			""", returnStdout: true)
-		def signatureTemplate = sh (script: """
-			set +x
-			curl -s -k -Ffile=@${artifactDir}/${templateFileName} -Ftoken=${token} ${url}/template/upload | gpg --clearsign --no-tty
-			""", returnStdout: true)
-		sh """
-			set +x
-			curl -s -k -Ftoken=${token} -Fsignature=\"${signatureTemplate}\" ${url}/auth/sign
-		"""
-
-		// delete old template
-		if (responseTemplate != "Not found") {
-			def jsonTemplate = jsonParse(responseTemplate)
-			sh """
-				set +x
-				curl -s -k -X DELETE ${url}/template/delete?id=${jsonTemplate["id"]}'&'token=${token}
-			"""
-		}
-	}
-	} catch (e) { 
-		currentBuild.result = "FAILED"
-		throw e
-	} finally {
-		// Success or failure, always send notifications
-		notifyBuild(currentBuild.result, notifyBuildDetails)
-	}
-}
 
 def getVersionFromPom(pom) {
-	def matcher = readFile(pom) =~ '<version>(.+)</version>'
-	matcher ? matcher[1][1] : null
+    def matcher = readFile(pom) =~ '<version>(.+)</version>'
+    matcher ? matcher[1][1] : null
 }
 
 def String getVersion(pom) {
-	def pomver = getVersionFromPom(pom)
-	def ver = sh (script: "/bin/echo ${pomver} | cut -d '-' -f 1", returnStdout: true)
-	return "${ver}".trim()
+    def pomver = getVersionFromPom(pom)
+    def ver = sh(script: "/bin/echo ${pomver} | cut -d '-' -f 1", returnStdout: true)
+    return "${ver}".trim()
 }
 
 @NonCPS
@@ -255,45 +231,45 @@ def jsonParse(def json) {
 
 // https://jenkins.io/blog/2016/07/18/pipline-notifications/
 def notifyBuild(String buildStatus = 'STARTED', String details = '') {
-  // build status of null means successful
-  buildStatus = buildStatus ?: 'SUCCESSFUL'
+    // build status of null means successful
+    buildStatus = buildStatus ?: 'SUCCESSFUL'
 
-  // Default values
-  def colorName = 'RED'
-  def colorCode = '#FF0000'
-  def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"  	
-  def summary = "${subject} (${env.BUILD_URL})"
+    // Default values
+    def colorName = 'RED'
+    def colorCode = '#FF0000'
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
 
-  // Override default values based on build status
-  if (buildStatus == 'STARTED') {
-    color = 'YELLOW'
-    colorCode = '#FFFF00'  
-  } else if (buildStatus == 'SUCCESSFUL') {
-    color = 'GREEN'
-    colorCode = '#00FF00'
-  } else {
-    color = 'RED'
-    colorCode = '#FF0000'
-	summary = "${subject} (${env.BUILD_URL})${details}"
-  }
-  // Get token
-  def slackToken = getSlackToken('ss-bots-slack-token')
-  // Send notifications
-  slackSend (color: colorCode, message: summary, teamDomain: 'subutai-io', token: "${slackToken}")
+    // Override default values based on build status
+    if (buildStatus == 'STARTED') {
+        color = 'YELLOW'
+        colorCode = '#FFFF00'
+    } else if (buildStatus == 'SUCCESSFUL') {
+        color = 'GREEN'
+        colorCode = '#00FF00'
+    } else {
+        color = 'RED'
+        colorCode = '#FF0000'
+        summary = "${subject} (${env.BUILD_URL})${details}"
+    }
+    // Get token
+    def slackToken = getSlackToken('ss-bots')
+    // Send notifications
+    slackSend(color: colorCode, message: summary, teamDomain: 'optdyn', token: "${slackToken}")
 }
 
 // get slack token from global jenkins credentials store
 @NonCPS
-def getSlackToken(String slackCredentialsId){
-	// id is ID of creadentials
-	def jenkins_creds = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0]
+def getSlackToken(String slackCredentialsId) {
+    // id is ID of creadentials
+    def jenkins_creds = Jenkins.instance.getExtensionList('com.cloudbees.plugins.credentials.SystemCredentialsProvider')[0]
 
-	String found_slack_token = jenkins_creds.getStore().getDomains().findResult { domain ->
-	  jenkins_creds.getCredentials(domain).findResult { credential ->
-	    if(slackCredentialsId.equals(credential.id)) {
-	      credential.getSecret()
-	    }
-	  }
-	}
-	return found_slack_token
+    String found_slack_token = jenkins_creds.getStore().getDomains().findResult { domain ->
+        jenkins_creds.getCredentials(domain).findResult { credential ->
+            if (slackCredentialsId.equals(credential.id)) {
+                credential.getSecret()
+            }
+        }
+    }
+    return found_slack_token
 }

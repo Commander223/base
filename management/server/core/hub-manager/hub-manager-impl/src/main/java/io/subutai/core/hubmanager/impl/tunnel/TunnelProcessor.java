@@ -1,59 +1,54 @@
 package io.subutai.core.hubmanager.impl.tunnel;
 
 
-import java.util.HashSet;
 import java.util.Set;
-
-import javax.ws.rs.core.Response;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cxf.jaxrs.client.WebClient;
 import org.apache.http.HttpStatus;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 
 import io.subutai.common.command.CommandResult;
-import io.subutai.common.peer.HostNotFoundException;
+import io.subutai.common.command.RequestBuilder;
 import io.subutai.common.peer.ResourceHost;
+import io.subutai.core.hubmanager.api.RestClient;
+import io.subutai.core.hubmanager.api.RestResult;
 import io.subutai.core.hubmanager.api.StateLinkProcessor;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
-import io.subutai.core.hubmanager.impl.ConfigManager;
 import io.subutai.core.peer.api.PeerManager;
 import io.subutai.hub.share.dto.TunnelInfoDto;
-import io.subutai.hub.share.json.JsonUtil;
 
 import static java.lang.String.format;
 
 import static io.subutai.hub.share.dto.TunnelInfoDto.TunnelStatus.READY;
 
 
-// TODO: Replace WebClient with HubRestClient.
 public class TunnelProcessor implements StateLinkProcessor
 {
-    static final String CREATE_TUNNEL_COMMAND = "subutai tunnel add %s:%s %s -g";
+    public static final String CREATE_TUNNEL_COMMAND = "subutai tunnel add %s:%s %s -g";
 
-    public static final String DELETE_TUNNEL_COMMAND = "subutai tunnel del %s:%s";
+    private static final String DELETE_TUNNEL_COMMAND = "subutai tunnel del %s:%s";
 
-    private static final HashSet<String> LINKS_IN_PROGRESS = new HashSet<>();
+    private static final Set<String> LINKS_IN_PROGRESS = Sets.newConcurrentHashSet();
 
     private final Logger log = LoggerFactory.getLogger( getClass() );
+    private final RestClient restClient;
 
     private PeerManager peerManager;
 
-    private ConfigManager configManager;
 
-
-    public TunnelProcessor( PeerManager peerManager, ConfigManager configManager )
+    public TunnelProcessor( PeerManager peerManager, RestClient restClient )
     {
         this.peerManager = peerManager;
-        this.configManager = configManager;
+        this.restClient = restClient;
     }
 
 
     @Override
-    public synchronized boolean processStateLinks( final Set<String> stateLinks ) throws HubManagerException
+    public boolean processStateLinks( final Set<String> stateLinks ) throws HubManagerException
     {
         for ( String stateLink : stateLinks )
         {
@@ -116,28 +111,26 @@ public class TunnelProcessor implements StateLinkProcessor
 
     private void deleteTunnel( final String stateLink, final TunnelInfoDto tunnelInfoDto )
     {
-        ResourceHost resourceHost = null;
         try
         {
-            resourceHost = peerManager.getLocalPeer().getManagementHost();
+            ResourceHost resourceHost = peerManager.getLocalPeer().getManagementHost();
+
+            CommandResult result = resourceHost.execute( new RequestBuilder(
+                    format( DELETE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen() ) ) );
+
+            if ( !result.hasSucceeded() )
+            {
+                String errorLog = "Executed: " + format( CREATE_TUNNEL_COMMAND, tunnelInfoDto.getIp(),
+                        tunnelInfoDto.getPortToOpen(), getTunnelLifetime( tunnelInfoDto ) ) + " |  Result: " + result
+                        .getStdErr();
+
+                TunnelHelper.sendError( stateLink, errorLog, restClient );
+            }
         }
-        catch ( HostNotFoundException e )
+        catch ( Exception e )
         {
-            TunnelHelper.sendError( stateLink, e.getMessage(), configManager );
+            TunnelHelper.sendError( stateLink, e.getMessage(), restClient );
             log.error( e.getMessage() );
-        }
-
-        CommandResult result = TunnelHelper.execute( resourceHost, format( DELETE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen() ) );
-
-        Preconditions.checkNotNull( result );
-
-        if ( !result.hasSucceeded() )
-        {
-            String errorLog = "Executed: " +
-                    format( CREATE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen(),
-                            getTunnelLifetime( tunnelInfoDto ) ) + " |  Result: " + result.getStdErr();
-
-            TunnelHelper.sendError( stateLink, errorLog, configManager );
         }
     }
 
@@ -148,16 +141,24 @@ public class TunnelProcessor implements StateLinkProcessor
         {
             ResourceHost resourceHost = peerManager.getLocalPeer().getManagementHost();
 
+            if ( tunnelInfoDto.getContainerId() != null && !tunnelInfoDto.getContainerId().isEmpty() )
+            {
+                resourceHost =
+                        peerManager.getLocalPeer().getResourceHostByContainerId( tunnelInfoDto.getContainerId() );
+            }
+
+
             String tunnelLifeTime = getTunnelLifetime( tunnelInfoDto );
 
-            CommandResult result =
-                    getOpenedTunnelData( resourceHost, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen() );
+            CommandResult result = resourceHost.execute( new RequestBuilder(
+                    format( TunnelEventProcessor.TUNNEL_LIST_CMD, tunnelInfoDto.getIp(),
+                            tunnelInfoDto.getPortToOpen() ) ) );
 
-            if ( result == null )
+            if ( !result.hasSucceeded() )
             {
-                result = TunnelHelper.execute( resourceHost,
+                result = resourceHost.execute( new RequestBuilder(
                         format( CREATE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen(),
-                                tunnelLifeTime ) );
+                                tunnelLifeTime ) ) );
             }
 
             parseResult( stateLink, result, tunnelInfoDto, tunnelLifeTime );
@@ -165,24 +166,8 @@ public class TunnelProcessor implements StateLinkProcessor
         catch ( Exception e )
         {
             log.error( e.getMessage() );
-            TunnelHelper.sendError( stateLink, e.getMessage(), configManager );
+            TunnelHelper.sendError( stateLink, e.getMessage(), restClient );
         }
-    }
-
-
-    private CommandResult getOpenedTunnelData( ResourceHost resourceHost, String ip, String port )
-    {
-        CommandResult result =
-                TunnelHelper.execute( resourceHost, format( TunnelEventProcessor.TUNNEL_LIST_CMD, ip, port ) );
-
-        Preconditions.checkNotNull( result );
-
-        if ( !result.hasSucceeded() )
-        {
-            return null;
-        }
-
-        return result;
     }
 
 
@@ -191,13 +176,13 @@ public class TunnelProcessor implements StateLinkProcessor
     {
         if ( result.hasSucceeded() )
         {
-            tunnelInfoDto = TunnelHelper.parseResult( stateLink, result.getStdOut(), configManager, tunnelInfoDto );
+            tunnelInfoDto = TunnelHelper.parseResult( result.getStdOut(), tunnelInfoDto );
 
             if ( tunnelInfoDto != null )
             {
                 tunnelInfoDto.setTunnelStatus( READY );
                 TunnelEventProcessor.setOpenPort( result.getStdOut() );
-                Response response = TunnelHelper.updateTunnelStatus( stateLink, tunnelInfoDto, configManager );
+                RestResult<Object> response = TunnelHelper.updateTunnelStatus( stateLink, tunnelInfoDto, restClient );
 
                 Preconditions.checkNotNull( response );
 
@@ -213,11 +198,11 @@ public class TunnelProcessor implements StateLinkProcessor
         }
         else
         {
-            String errorLog = "Executed: " +
-                    format( CREATE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen(),
+            String errorLog =
+                    "Executed: " + format( CREATE_TUNNEL_COMMAND, tunnelInfoDto.getIp(), tunnelInfoDto.getPortToOpen(),
                             tunnelLifeTime ) + " |  Result: " + result.getStdErr();
 
-            TunnelHelper.sendError( stateLink, errorLog, configManager );
+            TunnelHelper.sendError( stateLink, errorLog, restClient );
         }
     }
 
@@ -232,28 +217,23 @@ public class TunnelProcessor implements StateLinkProcessor
     {
         try
         {
-            WebClient client = configManager.getTrustedWebClientWithAuth( link, configManager.getHubIp() );
-            Response res = client.get();
+            RestResult<TunnelInfoDto> restResult = restClient.get( link, TunnelInfoDto.class );
 
-            log.debug( "Response: HTTP {} - {}", res.getStatus(), res.getStatusInfo().getReasonPhrase() );
+            log.debug( "Response: HTTP {} - {}", restResult.getStatus(), restResult.getReasonPhrase() );
 
-            if ( res.getStatus() != HttpStatus.SC_OK )
+            if ( restResult.getStatus() != HttpStatus.SC_OK )
             {
-                log.error( "Error to get tunnel  data from Hub: HTTP {} - {}", res.getStatus(),
-                        res.getStatusInfo().getReasonPhrase() );
+                log.error( "Error to get tunnel  data from Hub: HTTP {} - {}", restResult.getStatus(),
+                        restResult.getError() );
 
                 return null;
             }
 
-            byte[] encryptedContent = configManager.readContent( res );
-
-            byte[] plainContent = configManager.getMessenger().consume( encryptedContent );
-
-            return JsonUtil.fromCbor( plainContent, TunnelInfoDto.class );
+            return restResult.getEntity();
         }
         catch ( Exception e )
         {
-            TunnelHelper.sendError( link, e.getMessage(), configManager );
+            TunnelHelper.sendError( link, e.getMessage(), restClient );
             log.error( e.getMessage() );
             return null;
         }

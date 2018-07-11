@@ -1,7 +1,7 @@
 package io.subutai.core.localpeer.impl;
 
 
-import com.google.common.collect.Lists;
+import com.google.common.base.Strings;
 
 import io.subutai.common.command.RequestBuilder;
 import io.subutai.common.settings.Common;
@@ -12,6 +12,18 @@ public class ResourceHostCommands
     public RequestBuilder getListContainerInfoCommand( String containerName )
     {
         return new RequestBuilder( String.format( "subutai list -i %s", containerName ) );
+    }
+
+
+    public RequestBuilder getListContainersInfoCommand()
+    {
+        return new RequestBuilder( "subutai list -i" );
+    }
+
+
+    public RequestBuilder getListContainersCommand()
+    {
+        return new RequestBuilder( "subutai list -c" );
     }
 
 
@@ -29,13 +41,13 @@ public class ResourceHostCommands
 
     public RequestBuilder getDestroyContainerCommand( String containerId )
     {
-        return new RequestBuilder( String.format( "subutai destroy id:%s", containerId ) ).withTimeout( 60 );
+        return new RequestBuilder( String.format( "subutai destroy id:%s", containerId ) ).withTimeout( 600 );
     }
 
 
     public RequestBuilder getCleanupEnvironmentCommand( int vlan )
     {
-        return new RequestBuilder( String.format( "subutai cleanup %d", vlan ) ).withTimeout( 60 * 60 );
+        return new RequestBuilder( String.format( "subutai cleanup %d", vlan ) ).withTimeout( 3600 );
     }
 
 
@@ -45,26 +57,43 @@ public class ResourceHostCommands
     }
 
 
-    public RequestBuilder getImportTemplateCommand( final String templateId )
+    public RequestBuilder getImportTemplateCommand( final String templateId, final String cdnToken )
     {
-        return new RequestBuilder( String.format( "subutai import id:%s", templateId ) )
+        return new RequestBuilder( String.format( "subutai import id:%s %s", templateId,
+                Strings.isNullOrEmpty( cdnToken ) ? "" : "-t " + cdnToken ) )
                 .withTimeout( Common.TEMPLATE_DOWNLOAD_TIMEOUT_SEC );
     }
 
 
-    public RequestBuilder getCloneContainerCommand( final String templateId, String containerName, String ip, int vlan,
-                                                    String environmentId, String token )
+    public RequestBuilder getCloneContainerCommand( final String templateId, String containerName, String hostname,
+                                                    String ip, int vlan, String environmentId, String containerToken )
     {
-        return new RequestBuilder( "subutai clone" ).withCmdArgs(
-                Lists.newArrayList( String.format( "id:%s", templateId ), containerName, "-i",
-                        String.format( "\"%s %d\"", ip, vlan ), "-e", environmentId, "-t", token ) )
-                                                    .withTimeout( Common.CLONE_TIMEOUT_SEC );
+        return new RequestBuilder(
+                String.format( "subutai clone id:%s %s -i \"%s %d\" -e %s -s %s && subutai hostname %s %s", templateId,
+                        containerName, ip, vlan, environmentId, containerToken, containerName, hostname ) )
+                .withTimeout( Common.CLONE_TIMEOUT_SEC );
+    }
+
+
+    public RequestBuilder getExportTemplateCommand( final String containerName, final String templateName,
+                                                    final String version, final boolean isPrivateTemplate,
+                                                    final String token )
+    {
+        return new RequestBuilder(
+                String.format( "subutai export %s -n %s -v %s -t %s %s", containerName, templateName, version, token,
+                        isPrivateTemplate ? "-p" : "" ) ).withTimeout( Common.TEMPLATE_EXPORT_TIMEOUT_SEC );
     }
 
 
     public RequestBuilder getGetRhVersionCommand()
     {
         return new RequestBuilder( "subutai -v" );
+    }
+
+
+    public RequestBuilder getGetRhOsNameCommand()
+    {
+        return new RequestBuilder( "subutai info os" );
     }
 
 
@@ -82,6 +111,6 @@ public class ResourceHostCommands
 
     public RequestBuilder getGetSetRhHostnameCommand( final String newHostname )
     {
-        return new RequestBuilder( String.format( "subutai hostname %s ", newHostname ) );
+        return new RequestBuilder( String.format( "subutai hostname %s", newHostname ) );
     }
 }

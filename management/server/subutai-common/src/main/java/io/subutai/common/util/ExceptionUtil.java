@@ -8,14 +8,14 @@ public class ExceptionUtil
 {
     public Throwable getRootCause( Throwable throwable )
     {
-        Throwable cause = ExceptionUtils.getRootCause( throwable );
-
-        return cause == null ? throwable : cause;
+        return getRootCauze( throwable );
     }
 
 
-    public String getRootCauseMessage( Throwable throwable )
+    public static Throwable getRootCauze( Throwable throwable )
     {
-        return ExceptionUtils.getRootCauseMessage( throwable );
+        Throwable cause = ExceptionUtils.getRootCause( throwable );
+
+        return cause == null ? throwable : cause;
     }
 }

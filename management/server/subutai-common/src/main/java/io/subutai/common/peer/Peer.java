@@ -14,14 +14,14 @@ import io.subutai.common.environment.Containers;
 import io.subutai.common.environment.CreateEnvironmentContainersRequest;
 import io.subutai.common.environment.CreateEnvironmentContainersResponse;
 import io.subutai.common.environment.HostAddresses;
+import io.subutai.common.environment.Nodes;
 import io.subutai.common.environment.PeerTemplatesDownloadProgress;
 import io.subutai.common.environment.PrepareTemplatesRequest;
 import io.subutai.common.environment.PrepareTemplatesResponse;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
-import io.subutai.common.host.HostInterfaces;
+import io.subutai.common.host.Quota;
 import io.subutai.common.metric.HistoricalMetrics;
-import io.subutai.common.metric.ProcessResourceUsage;
 import io.subutai.common.metric.ResourceHostMetrics;
 import io.subutai.common.network.NetworkResourceImpl;
 import io.subutai.common.network.UsedNetworkResources;
@@ -29,7 +29,6 @@ import io.subutai.common.protocol.CustomProxyConfig;
 import io.subutai.common.protocol.P2PConfig;
 import io.subutai.common.protocol.P2PCredentials;
 import io.subutai.common.protocol.P2pIps;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.PublicKeyContainer;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKey;
@@ -67,11 +66,21 @@ public interface Peer extends RelationLink
     PeerInfo getPeerInfo();
 
     /**
+     * Checks if peer can accommodate the requested container group
+     *
+     * @param nodes requested nodes (containers)
+     *
+     * @return true - can accommodate, false - otherwise
+     */
+    boolean canAccommodate( Nodes nodes ) throws PeerException;
+
+
+    /**
      * Creates environment container group on the peer
      *
-     * @param request - container creation request
+     * @param request container creation request
      */
-    CreateEnvironmentContainersResponse createEnvironmentContainers( final CreateEnvironmentContainersRequest request )
+    CreateEnvironmentContainersResponse createEnvironmentContainers( CreateEnvironmentContainersRequest request )
             throws PeerException;
 
 
@@ -92,7 +101,7 @@ public interface Peer extends RelationLink
 
 
     /**
-     * Returns true of the host is connected, false otherwise
+     * Returns true of the host is connected (AND running, in case it is a container host), false otherwise
      */
     boolean isConnected( HostId hostId );
 
@@ -173,22 +182,12 @@ public interface Peer extends RelationLink
      */
     ContainerHostState getContainerState( ContainerId containerId ) throws PeerException;
 
+    Quota getRawQuota( ContainerId containerId ) throws PeerException;
+
     /**
      * Returns set of container information of the environment
      */
     Containers getEnvironmentContainers( EnvironmentId environmentId ) throws PeerException;
-
-    //******** Quota functions ***********
-
-    void setContainerSize( final ContainerId containerHostId, final ContainerSize containerSize ) throws PeerException;
-
-    /**
-     * Returns resource usage of process on container by its PID
-     *
-     * @param containerId - target container
-     * @param pid - pid of process
-     */
-    ProcessResourceUsage getProcessResourceUsage( final ContainerId containerId, int pid ) throws PeerException;
 
 
     //networking
@@ -201,7 +200,8 @@ public interface Peer extends RelationLink
             throws PeerException;
 
     void updateAuthorizedKeysWithNewContainerHostname( EnvironmentId environmentId, String oldHostname,
-                                                       String newHostname ) throws PeerException;
+                                                       String newHostname, SshEncryptionType sshEncryptionType )
+            throws PeerException;
 
 
     /**
@@ -217,13 +217,6 @@ public interface Peer extends RelationLink
 
     void updatePeerEnvironmentPubKey( EnvironmentId environmentId, PGPPublicKeyRing publicKeyRing )
             throws PeerException;
-
-
-    /**
-     * Gets network interfaces
-     */
-
-    HostInterfaces getInterfaces() throws PeerException;
 
 
     /**
@@ -247,6 +240,12 @@ public interface Peer extends RelationLink
 
     ResourceHostMetrics getResourceHostMetrics() throws PeerException;
 
+
+    /**
+     * Returns limits for requested peer
+     *
+     * @param peerId peer ID
+     */
     PeerResources getResourceLimits( PeerId peerId ) throws PeerException;
 
     ContainerQuota getQuota( ContainerId containerId ) throws PeerException;
@@ -276,12 +275,8 @@ public interface Peer extends RelationLink
 
     void configureHostsInEnvironment( EnvironmentId environmentId, HostAddresses hostAddresses ) throws PeerException;
 
-    void addReverseProxy( ReverseProxyConfig reverseProxyConfig ) throws PeerException;
-
-    @Deprecated
     void addCustomProxy( CustomProxyConfig proxyConfig ) throws PeerException;
 
-    @Deprecated
     void removeCustomProxy( CustomProxyConfig proxyConfig ) throws PeerException;
 
     SshKeys getSshKeys( EnvironmentId environmentId, SshEncryptionType sshEncryptionType ) throws PeerException;

@@ -5,18 +5,16 @@ import java.util.Map;
 
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.hubmanager.api.model.Config;
-import io.subutai.hub.share.dto.SystemConfDto;
+import io.subutai.hub.share.dto.BrokerSettingsDto;
 
 
 public interface HubManager
 {
-    String HUB_EMAIL_SUFFIX = "@hub.subut.ai";
+    String HUB_EMAIL_SUFFIX = "@bazaar.subutai.io";
 
-    void registerPeer( String hupIp, String email, String password, String peerName ) throws HubManagerException;
+    void registerPeer( String email, String password, String peerName, String peerScope ) throws HubManagerException;
 
     void unregisterPeer() throws HubManagerException;
-
-    boolean isRegistered();
 
     String getPeerName();
 
@@ -24,25 +22,31 @@ public interface HubManager
 
     void triggerHeartbeat();
 
-    void sendResourceHostInfo() throws HubManagerException;
-
     String getHubDns() throws HubManagerException;
-
-    String getProducts() throws HubManagerException;
-
-    void installPlugin( String url, String filename, String uid ) throws HubManagerException;
-
-    void uninstallPlugin( String name, String uid );
 
     Map<String, String> getPeerInfo() throws HubManagerException;
 
     Config getHubConfiguration();
 
-    String getChecksum();
-
-    void sendSystemConfiguration( SystemConfDto dto );
-
     String getCurrentUserEmail();
 
+    boolean isRegisteredWithHub();
+
     boolean isHubReachable();
+
+    boolean canWorkWithHub();
+
+    boolean isPeerUpdating();
+
+    RestClient getRestClient();
+
+    boolean hasHubTasksInAction();
+
+    void notifyHubThatPeerIsOffline();
+
+    BrokerSettingsDto getBrokers();
+
+    void sendPeersMertics() throws HubManagerException;
+
+    void sendContainerMertics() throws HubManagerException;
 }

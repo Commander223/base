@@ -15,6 +15,7 @@ import com.google.common.collect.Lists;
 import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.ResourceHost;
+import io.subutai.common.peer.ResourceHostException;
 import io.subutai.common.util.JsonUtil;
 import io.subutai.core.registration.api.HostRegistrationManager;
 import io.subutai.core.registration.api.service.RequestedHost;
@@ -26,6 +27,7 @@ import io.subutai.core.security.api.crypto.EncryptionTool;
 public class RegistrationRestServiceImpl implements RegistrationRestService
 {
     private static final Logger LOGGER = LoggerFactory.getLogger( RegistrationRestServiceImpl.class );
+    private static final String ERROR_KEY = "ERROR";
     private SecurityManager securityManager;
     private HostRegistrationManager registrationManager;
     private LocalPeer localPeer;
@@ -64,7 +66,28 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         {
             LOGGER.error( "Error registering public key: {}", e.getMessage() );
 
-            return Response.serverError().build();
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
+        }
+    }
+
+
+    @RolesAllowed( { "Resource-Management|Write", "Resource-Management|Update" } )
+    @Override
+    public Response changeRhHostname( final String rhId, final String hostname )
+    {
+        try
+        {
+            registrationManager.changeRhHostname( rhId, hostname );
+
+            return Response.ok().build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( "Error changing RH hostname", e );
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 
@@ -81,7 +104,9 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         catch ( Exception e )
         {
             LOGGER.error( "Error approving registration request", e );
-            return Response.serverError().entity( e.getMessage() ).build();
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 
@@ -97,7 +122,10 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         }
         catch ( Exception e )
         {
-            return Response.serverError().entity( e.getMessage() ).build();
+            LOGGER.error( "Error rejecting registration request", e );
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 
@@ -113,7 +141,29 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         }
         catch ( Exception e )
         {
-            return Response.serverError().entity( e.getMessage() ).build();
+            LOGGER.error( "Error removing registration request", e );
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
+        }
+    }
+
+
+    @RolesAllowed( { "Resource-Management|Delete", "Resource-Management|Update" } )
+    @Override
+    public Response unblockRequest( final String requestId )
+    {
+        try
+        {
+            registrationManager.unblockRequest( requestId );
+            return Response.ok().build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( "Error unblocking registration request", e );
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 
@@ -137,14 +187,17 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
 
             String publicKey = decryptedMessage.substring( decryptedMessage.indexOf( lineSeparator ) + 1 );
 
-            registrationManager.verifyToken( token, containerId, publicKey );
+            boolean valid = registrationManager.verifyTokenAndRegisterKey( token, containerId, publicKey );
 
-            return Response.accepted().build();
+            return valid ? Response.accepted().build() :
+                   Response.status( Response.Status.UNAUTHORIZED ).entity( "Invalid token" ).build();
         }
         catch ( Exception e )
         {
             LOGGER.error( "Error verifying container token", e );
-            return Response.serverError().build();
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 
@@ -157,7 +210,16 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         {
             List<RequestedHost> requestedHosts = registrationManager.getRequests();
 
-            ResourceHost managementHost = localPeer.getManagementHost();
+            String managementId = null;
+            try
+            {
+                ResourceHost managementHost = localPeer.getManagementHost();
+
+                managementId = managementHost.getId();
+            }
+            catch ( HostNotFoundException ignore )
+            {
+            }
 
             List<RequestedHostJson> requestedHostList = Lists.newArrayList();
 
@@ -165,7 +227,7 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
             {
                 RequestedHostJson requestedHostJson = new RequestedHostJson( requestedHost );
 
-                if ( managementHost.getId().equalsIgnoreCase( requestedHost.getId() ) )
+                if ( requestedHost.getId().equalsIgnoreCase( managementId ) )
                 {
                     requestedHostJson.setManagement( true );
                 }
@@ -175,8 +237,12 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
                     ResourceHost resourceHost = localPeer.getResourceHostById( requestedHost.getId() );
 
                     requestedHostJson.setConnected( resourceHost.isConnected() );
+
+                    requestedHostJson.setIp( resourceHost.getAddress() );
+
+                    requestedHostJson.setVersion( resourceHost.getRhVersion() );
                 }
-                catch ( HostNotFoundException e )
+                catch ( HostNotFoundException | ResourceHostException e )
                 {
                     //ignore
                 }
@@ -192,7 +258,8 @@ public class RegistrationRestServiceImpl implements RegistrationRestService
         {
             LOGGER.warn( "Error in getRegistrationRequests {}", e.getMessage() );
 
-            return Response.serverError().entity( e.getMessage() ).build();
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
         }
     }
 }

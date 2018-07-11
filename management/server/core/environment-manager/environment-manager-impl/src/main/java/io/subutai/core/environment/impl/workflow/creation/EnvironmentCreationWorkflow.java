@@ -1,6 +1,8 @@
 package io.subutai.core.environment.impl.workflow.creation;
 
 
+import java.util.Map;
+
 import io.subutai.common.environment.EnvironmentStatus;
 import io.subutai.common.environment.Topology;
 import io.subutai.common.tracker.TrackerOperation;
@@ -13,15 +15,19 @@ import io.subutai.core.environment.impl.workflow.creation.steps.PrepareTemplates
 import io.subutai.core.environment.impl.workflow.creation.steps.RegisterHostsStep;
 import io.subutai.core.environment.impl.workflow.creation.steps.RegisterSshStep;
 import io.subutai.core.environment.impl.workflow.creation.steps.ReservationStep;
+import io.subutai.core.environment.impl.workflow.creation.steps.SetQuotaStep;
 import io.subutai.core.environment.impl.workflow.creation.steps.SetupP2PStep;
+import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.peer.api.PeerManager;
 import io.subutai.core.security.api.SecurityManager;
+import io.subutai.hub.share.quota.ContainerQuota;
 
 
 public class EnvironmentCreationWorkflow
         extends CancellableWorkflow<EnvironmentCreationWorkflow.EnvironmentCreationPhase>
 {
     private final PeerManager peerManager;
+    private final IdentityManager identityManager;
     private final SecurityManager securityManager;
     private LocalEnvironment environment;
     private final Topology topology;
@@ -29,31 +35,26 @@ public class EnvironmentCreationWorkflow
     private final String defaultDomain;
     private final TrackerOperation operationTracker;
     private final EnvironmentManagerImpl environmentManager;
+    private Map<String, ContainerQuota> containerQuotas;
 
 
     //environment creation phases
     public enum EnvironmentCreationPhase
     {
-        INIT,
-        GENERATE_KEYS,
-        RESERVE_NET,
-        SETUP_P2P,
-        PREPARE_TEMPLATES,
-        CLONE_CONTAINERS,
-        CONFIGURE_HOSTS,
-        CONFIGURE_SSH,
-        FINALIZE
+        INIT, GENERATE_KEYS, RESERVE_NET, SETUP_P2P, PREPARE_TEMPLATES, CLONE_CONTAINERS, CONFIGURE_HOSTS,
+        CONFIGURE_SSH, SET_QUOTA, FINALIZE
 
     }
 
 
-    public EnvironmentCreationWorkflow( String defaultDomain, EnvironmentManagerImpl environmentManager,
-                                        PeerManager peerManager, SecurityManager securityManager,
-                                        LocalEnvironment environment, Topology topology, String sshKey,
-                                        TrackerOperation operationTracker )
+    public EnvironmentCreationWorkflow( String defaultDomain, IdentityManager identityManager,
+                                        EnvironmentManagerImpl environmentManager, PeerManager peerManager,
+                                        SecurityManager securityManager, LocalEnvironment environment,
+                                        Topology topology, String sshKey, TrackerOperation operationTracker )
     {
         super( EnvironmentCreationPhase.INIT );
 
+        this.identityManager = identityManager;
         this.environmentManager = environmentManager;
         this.peerManager = peerManager;
         this.securityManager = securityManager;
@@ -107,7 +108,7 @@ public class EnvironmentCreationWorkflow
 
         try
         {
-            new ReservationStep( topology, environment, peerManager, operationTracker ).execute();
+            new ReservationStep( topology, environment, peerManager, identityManager, operationTracker ).execute();
 
             saveEnvironment();
 
@@ -149,7 +150,8 @@ public class EnvironmentCreationWorkflow
 
         try
         {
-            new PrepareTemplatesStep( environment, peerManager, topology, operationTracker ).execute();
+            new PrepareTemplatesStep( environment, peerManager, topology,
+                    identityManager.getActiveSession().getCdnToken(), operationTracker ).execute();
 
             saveEnvironment();
 
@@ -170,7 +172,9 @@ public class EnvironmentCreationWorkflow
 
         try
         {
-            new ContainerCloneStep( defaultDomain, topology, environment, peerManager, operationTracker ).execute();
+            containerQuotas =
+                    new ContainerCloneStep( defaultDomain, topology, environment, peerManager, identityManager,
+                            operationTracker ).execute();
 
             saveEnvironment();
 
@@ -215,6 +219,28 @@ public class EnvironmentCreationWorkflow
             environment.addSshKey( sshKey );
 
             new RegisterSshStep( topology, environment, operationTracker ).execute();
+
+            saveEnvironment();
+
+            return EnvironmentCreationPhase.SET_QUOTA;
+        }
+        catch ( Exception e )
+        {
+            fail( e.getMessage(), e );
+
+            return null;
+        }
+    }
+
+
+    public EnvironmentCreationPhase SET_QUOTA()
+    {
+        operationTracker.addLog( "Settings quotas" );
+
+        try
+        {
+
+            new SetQuotaStep( environment, containerQuotas, operationTracker ).execute();
 
             saveEnvironment();
 

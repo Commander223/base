@@ -1,32 +1,36 @@
 package io.subutai.core.hubmanager.impl.environment.state.destroy;
 
 
+import java.io.IOException;
 import java.util.Set;
 
-import io.subutai.common.environment.Containers;
 import io.subutai.common.environment.Environment;
 import io.subutai.common.environment.EnvironmentNotFoundException;
-import io.subutai.common.host.ContainerHostInfo;
-import io.subutai.common.host.HostInterfaceModel;
-import io.subutai.common.host.HostInterfaces;
 import io.subutai.common.peer.ContainerHost;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.settings.Common;
 import io.subutai.core.environment.api.exception.EnvironmentDestructionException;
+import io.subutai.core.hubmanager.api.RestResult;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
 import io.subutai.core.hubmanager.impl.environment.state.Context;
 import io.subutai.core.hubmanager.impl.environment.state.StateHandler;
-import io.subutai.core.hubmanager.impl.http.RestResult;
-import io.subutai.core.hubmanager.impl.tunnel.TunnelEventProcessor;
+import io.subutai.core.hubmanager.api.RestResult;
+import io.subutai.core.hubmanager.impl.processor.port_map.DestroyPortMap;
 import io.subutai.core.hubmanager.impl.tunnel.TunnelHelper;
+import io.subutai.hub.share.dto.domain.ContainerPortMapDto;
+import io.subutai.hub.share.dto.domain.PortMapDto;
+import io.subutai.core.identity.api.model.UserToken;
 import io.subutai.hub.share.dto.environment.EnvironmentPeerDto;
-
-import static java.lang.String.format;
+import org.bouncycastle.openpgp.PGPException;
 
 
 public class DeletePeerStateHandler extends StateHandler
 {
+
+    private static final String GET_ENVIRONMENT_PORT_MAP = "/rest/v1/environments/%s/ports/map";
+
+
     public DeletePeerStateHandler( Context ctx )
     {
         super( ctx, "Deleting peer" );
@@ -97,11 +101,34 @@ public class DeletePeerStateHandler extends StateHandler
 
         cleanTunnels( peerDto.getEnvironmentInfo().getId() );
 
+        cleanPortMap( peerDto.getEnvironmentInfo().getId() );
+
         ctx.localPeer.cleanupEnvironment( envId );
 
         ctx.envManager.notifyOnEnvironmentDestroyed( envId.getId() );
 
         ctx.envUserHelper.handleEnvironmentOwnerDeletion( peerDto );
+    }
+
+
+    private void cleanPortMap( String environmentId )
+    {
+        try
+        {
+            RestResult<ContainerPortMapDto> result = ctx.restClient
+                    .get( String.format( GET_ENVIRONMENT_PORT_MAP, environmentId ), ContainerPortMapDto.class );
+
+            DestroyPortMap destroyPortMap = new DestroyPortMap( ctx );
+
+            for ( PortMapDto portMapDto : result.getEntity().getContainerPorts() )
+            {
+                destroyPortMap.deleteMap( portMapDto );
+            }
+        }
+        catch ( Exception e )
+        {
+            log.error( e.getMessage() );
+        }
     }
 
 
@@ -115,7 +142,6 @@ public class DeletePeerStateHandler extends StateHandler
             {
                 deleteTunnel( containerHost.getIp() );
             }
-
         }
         catch ( Exception e )
         {
@@ -133,7 +159,16 @@ public class DeletePeerStateHandler extends StateHandler
     @Override
     protected String getToken( EnvironmentPeerDto peerDto )
     {
-        return peerDto.getPeerToken();
+        try
+        {
+            UserToken userToken = ctx.envUserHelper.getUserTokenFromHub( peerDto.getSsUserId() );
+            return userToken.getFullToken();
+        }
+        catch ( Exception e )
+        {
+            log.error( e.getMessage() );
+        }
+        return null;
     }
 
 

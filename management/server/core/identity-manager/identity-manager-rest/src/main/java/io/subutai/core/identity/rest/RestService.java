@@ -1,7 +1,6 @@
 package io.subutai.core.identity.rest;
 
 
-import javax.ws.rs.Consumes;
 import javax.ws.rs.FormParam;
 import javax.ws.rs.GET;
 import javax.ws.rs.POST;
@@ -18,34 +17,36 @@ public interface RestService
     @POST
     @Path( "gettoken" )
     @Produces( { MediaType.TEXT_PLAIN } )
-    public String createTokenPOST( @FormParam( "username" ) String userName, @FormParam( "password" ) String password );
+    Response createTokenPOST( @FormParam( "username" ) String userName, @FormParam( "password" ) String password );
 
     @GET
     @Path( "gettoken" )
     @Produces( MediaType.TEXT_PLAIN )
-    public String createTokenGET( @QueryParam( "username" ) String userName,
-                                  @QueryParam( "password" ) String password );
+    Response createTokenGET( @QueryParam( "username" ) String userName, @QueryParam( "password" ) String password );
+
+    @GET
+    @Path( "signtoken" )
+    @Produces( MediaType.TEXT_PLAIN )
+    Response getSignToken();
 
     @POST
     @Path( "auth" )
-    @Produces( MediaType.APPLICATION_JSON)
-    //@Consumes({"application/x-www-form-urlencoded"})
-    public Response authenticate( @FormParam( "type" ) int type, @FormParam( "username" ) String userName,
-                                  @FormParam( "password" ) String password );
+    @Produces( MediaType.APPLICATION_JSON )
+    Response authenticate( @FormParam( "type" ) int type, @FormParam( "username" ) String userName,
+                           @FormParam( "password" ) String password );
 
+    //TODO>>> Seems these are obsolete.  check and remove:
     @PUT
     @Path( "authid" )
-    @Produces( MediaType.TEXT_PLAIN)
-    //@Consumes({"application/x-www-form-urlencoded"})
+    @Produces( MediaType.TEXT_PLAIN )
     public Response updateAuthId( @FormParam( "type" ) int type, @FormParam( "username" ) String userName,
-                                  @FormParam( "password" ) String password,
-                                  @FormParam( "authid" )   String authId);
+                                  @FormParam( "password" ) String password, @FormParam( "authid" ) String authId );
+
     @POST
     @Path( "authid" )
-    @Produces( MediaType.TEXT_PLAIN)
-    //@Consumes({"application/x-www-form-urlencoded"})
-    public Response getAuthId( @FormParam( "type" ) int type, @FormParam( "username" ) String userName,
-                               @FormParam( "password" ) String password);
+    @Produces( MediaType.TEXT_PLAIN )
+    Response getAuthId( @FormParam( "type" ) int type, @FormParam( "username" ) String userName,
+                        @FormParam( "password" ) String password );
 
-
+    //<<<TODO
 }

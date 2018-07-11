@@ -10,10 +10,11 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.commons.lang3.StringUtils;
 
+import io.subutai.core.hubmanager.api.RestResult;
 import io.subutai.core.hubmanager.api.exception.HubManagerException;
-import io.subutai.core.hubmanager.impl.http.RestResult;
 import io.subutai.core.identity.api.IdentityManager;
 import io.subutai.core.identity.api.model.Session;
+import io.subutai.core.identity.api.model.UserToken;
 import io.subutai.hub.share.dto.environment.EnvironmentPeerDto;
 import io.subutai.hub.share.dto.environment.EnvironmentPeerDto.PeerState;
 
@@ -46,18 +47,26 @@ public abstract class StateHandler
     {
         String token = getToken( peerDto );
 
+
         Session session = ctx.identityManager.login( IdentityManager.TOKEN_ID, token );
 
-        Subject.doAs( session.getSubject(), new PrivilegedAction<Void>()
+        if ( session != null )
         {
-            @Override
-            public Void run()
+            Subject.doAs( session.getSubject(), new PrivilegedAction<Void>()
             {
-                runAs( peerDto );
+                @Override
+                public Void run()
+                {
+                    runAs( peerDto );
 
-                return null;
-            }
-        } );
+                    return null;
+                }
+            } );
+        }
+        else
+        {
+            log.warn( "Probably, environment has been deleted, no user to perform environment operation" );
+        }
     }
 
 
@@ -67,7 +76,16 @@ public abstract class StateHandler
      */
     protected String getToken( EnvironmentPeerDto peerDto )
     {
-        return StringUtils.defaultIfEmpty( peerDto.getEnvOwnerToken(), peerDto.getPeerToken() );
+        try
+        {
+            UserToken userToken = ctx.envUserHelper.getUserTokenFromHub( peerDto.getEnvironmentInfo().getSsOwnerId() );
+            return userToken.getFullToken();
+        }
+        catch ( Exception e )
+        {
+            log.error( e.getMessage() );
+        }
+        return null;
     }
 
 

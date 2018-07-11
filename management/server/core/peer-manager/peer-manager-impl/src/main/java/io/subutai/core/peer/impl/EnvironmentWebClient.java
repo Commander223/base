@@ -15,18 +15,18 @@ import io.subutai.common.environment.HostAddresses;
 import io.subutai.common.environment.PeerTemplatesDownloadProgress;
 import io.subutai.common.host.ContainerHostState;
 import io.subutai.common.host.HostId;
+import io.subutai.common.host.Quota;
 import io.subutai.common.metric.ProcessResourceUsage;
 import io.subutai.common.peer.ContainerId;
-import io.subutai.common.peer.ContainerSize;
 import io.subutai.common.peer.EnvironmentId;
 import io.subutai.common.peer.PeerException;
 import io.subutai.common.peer.PeerInfo;
 import io.subutai.common.protocol.CustomProxyConfig;
-import io.subutai.common.protocol.ReverseProxyConfig;
 import io.subutai.common.security.SshEncryptionType;
 import io.subutai.common.security.SshKey;
 import io.subutai.common.security.SshKeys;
 import io.subutai.common.security.WebClientBuilder;
+import io.subutai.common.settings.Common;
 import io.subutai.hub.share.quota.ContainerQuota;
 
 
@@ -180,7 +180,7 @@ public class EnvironmentWebClient
             remotePeer.checkRelation();
             String path = String.format( "/%s/container/%s/state", containerId.getEnvironmentId().getId(),
                     containerId.getId() );
-            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 3000, 15000, 1 );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L, 15000L, 1 );
 
             client.type( MediaType.APPLICATION_JSON );
             client.accept( MediaType.APPLICATION_JSON );
@@ -239,7 +239,7 @@ public class EnvironmentWebClient
             String path = String.format( "/%s/container/%s/quota", containerId.getEnvironmentId().getId(),
                     containerId.getId() );
 
-            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L, 15000L, 1 );
 
             client.type( MediaType.APPLICATION_JSON );
             client.accept( MediaType.APPLICATION_JSON );
@@ -279,37 +279,6 @@ public class EnvironmentWebClient
         {
             LOG.error( e.getMessage(), e );
             throw new PeerException( "Error on setting quota: " + e.getMessage() );
-        }
-        finally
-        {
-            WebClientBuilder.close( client );
-        }
-
-        WebClientBuilder.checkResponse( response );
-    }
-
-
-    public void setContainerSize( final ContainerId containerId, final ContainerSize containerSize )
-            throws PeerException
-    {
-        WebClient client = null;
-        Response response;
-        try
-        {
-            remotePeer.checkRelation();
-            String path = String.format( "/%s/container/%s/size", containerId.getEnvironmentId().getId(),
-                    containerId.getId() );
-
-            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
-
-            client.type( MediaType.APPLICATION_JSON );
-            client.accept( MediaType.APPLICATION_JSON );
-            response = client.post( containerSize );
-        }
-        catch ( Exception e )
-        {
-            LOG.error( e.getMessage(), e );
-            throw new PeerException( "Error on setting container size: " + e.getMessage() );
         }
         finally
         {
@@ -488,36 +457,6 @@ public class EnvironmentWebClient
     }
 
 
-    public void addReverseProxy( final ReverseProxyConfig reverseProxyConfig ) throws PeerException
-    {
-        WebClient client = null;
-        Response response;
-        try
-        {
-            String path = String.format( "/%s/container/%s/reverseProxy", reverseProxyConfig.getEnvironmentId(),
-                    reverseProxyConfig.getContainerId() );
-
-            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
-
-            client.accept( MediaType.APPLICATION_JSON );
-            client.type( MediaType.APPLICATION_JSON );
-
-            response = client.post( reverseProxyConfig );
-        }
-        catch ( Exception e )
-        {
-            LOG.error( e.getMessage(), e );
-            throw new PeerException( String.format( "Error on adding reverse proxy: %s", e.getMessage() ) );
-        }
-        finally
-        {
-            WebClientBuilder.close( client );
-        }
-
-        WebClientBuilder.checkResponse( response );
-    }
-
-
     public SshKeys getSshKeys( final EnvironmentId environmentId, final SshEncryptionType sshEncryptionType )
             throws PeerException
     {
@@ -554,7 +493,7 @@ public class EnvironmentWebClient
             String path = String.format( "/%s/container/%s/sshkeys", containerId.getEnvironmentId().getId(),
                     containerId.getId() );
 
-            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L, 15000L, 1 );
 
             client.type( MediaType.APPLICATION_JSON );
             client.accept( MediaType.APPLICATION_JSON );
@@ -634,14 +573,16 @@ public class EnvironmentWebClient
 
 
     public void updateAuthorizedKeysWithNewContainerHostname( EnvironmentId environmentId, String oldHostname,
-                                                              String newHostname ) throws PeerException
+                                                              String newHostname, SshEncryptionType sshEncryptionType )
+            throws PeerException
     {
         WebClient client = null;
         Response response;
         try
         {
-            String path = String.format( "/%s/containers/authorizedkeys/%s/%s", environmentId.getId(), oldHostname,
-                    newHostname );
+            String path =
+                    String.format( "/%s/containers/authorizedkeys/%s/%s/%s", environmentId.getId(), sshEncryptionType,
+                            oldHostname, newHostname );
 
             client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
 
@@ -779,5 +720,152 @@ public class EnvironmentWebClient
         }
 
         WebClientBuilder.checkResponse( response );
+    }
+
+
+    public void excludeContainerFromEnvironment( final String environmentId, final String containerId )
+            throws PeerException
+    {
+        WebClient client = null;
+        Response response;
+        try
+        {
+            remotePeer.checkRelation();
+            String path = String.format( "/%s/containers/%s/exclude", environmentId, containerId );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
+
+            client.type( MediaType.APPLICATION_JSON );
+            client.accept( MediaType.APPLICATION_JSON );
+            response = client.post( null );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( "Error excluding container from environment: " + e.getMessage() );
+        }
+        finally
+        {
+            WebClientBuilder.close( client );
+        }
+
+        WebClientBuilder.checkResponse( response );
+    }
+
+
+    public void updateContainerHostname( final String environmentId, final String containerId, final String hostname )
+            throws PeerException
+    {
+        WebClient client = null;
+        Response response;
+        try
+        {
+            remotePeer.checkRelation();
+            String path = String.format( "/%s/containers/%s/hostname/%s", environmentId, containerId, hostname );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider );
+
+            client.type( MediaType.APPLICATION_JSON );
+            client.accept( MediaType.APPLICATION_JSON );
+            response = client.post( null );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( "Error updating container hostname: " + e.getMessage() );
+        }
+        finally
+        {
+            WebClientBuilder.close( client );
+        }
+
+        WebClientBuilder.checkResponse( response );
+    }
+
+
+    public void placeEnvironmentInfoByContainerId( final String environmentId, final String containerId )
+            throws PeerException
+    {
+        WebClient client = null;
+        Response response;
+        try
+        {
+            remotePeer.checkRelation();
+            String path = String.format( "/%s/info/%s", environmentId, containerId );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L, 15000L, 1 );
+
+            client.type( MediaType.APPLICATION_JSON );
+            client.accept( MediaType.APPLICATION_JSON );
+            response = client.post( null );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( "Error requesting environment info: " + e.getMessage() );
+        }
+        finally
+        {
+            WebClientBuilder.close( client );
+        }
+
+        WebClientBuilder.checkResponse( response );
+    }
+
+
+    public void promoteTemplate( final ContainerId containerId, final String templateName ) throws PeerException
+    {
+        WebClient client = null;
+        Response response;
+        try
+        {
+            remotePeer.checkRelation();
+            String path = String.format( "/%s/containers/%s/template/%s/promote", containerId.getEnvironmentId(),
+                    containerId.getId(), templateName );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L,
+                    // 1 min for promote
+                    Common.TEMPLATE_PROMOTE_TIMEOUT_SEC * 1000L, 1 );
+
+            client.type( MediaType.APPLICATION_JSON );
+            client.accept( MediaType.APPLICATION_JSON );
+            response = client.post( null );
+        }
+        catch ( Exception e )
+        {
+            LOG.error( e.getMessage(), e );
+            throw new PeerException( "Error promoting container to template: " + e.getMessage() );
+        }
+        finally
+        {
+            WebClientBuilder.close( client );
+        }
+
+        WebClientBuilder.checkResponse( response );
+    }
+
+
+    public Quota getRawQuota( final ContainerId containerId ) throws PeerException
+    {
+        WebClient client = null;
+        Response response;
+        try
+        {
+            remotePeer.checkRelation();
+            String path = String.format( "/%s/container/%s/quota/raw", containerId.getEnvironmentId().getId(),
+                    containerId.getId() );
+            client = WebClientBuilder.buildEnvironmentWebClient( peerInfo, path, provider, 5000L, 15000L, 1 );
+
+            client.type( MediaType.APPLICATION_JSON );
+            client.accept( MediaType.APPLICATION_JSON );
+            response = client.get();
+        }
+        catch ( Exception e )
+        {
+            LOG.warn( e.getMessage() );
+            throw new PeerException( "Error on reading container quota: " + e.getMessage() );
+        }
+        finally
+        {
+            WebClientBuilder.close( client );
+        }
+
+        return WebClientBuilder.checkResponse( response, Quota.class );
     }
 }

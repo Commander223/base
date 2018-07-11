@@ -19,17 +19,23 @@ public final class CommonResourceValueParser
 
     public static ResourceValueParser getInstance( ContainerResourceType type )
     {
-        ResourceValueParser result;
+        ResourceValueParser result = null;
         switch ( type )
         {
             case CPU:
                 result = CpuResourceValueParser.getInstance();
                 break;
+            case CPUSET:
+                result = CpuSetResourceValueParser.getInstance();
+                break;
             case RAM:
                 result = RamResourceValueParser.getInstance();
                 break;
-            default:
-                result = DiskValueResourceParser.getInstance();
+            case NET:
+                result = NetResourceValueParser.getInstance();
+                break;
+            case DISK:
+                result = DiskResourceValueParser.getInstance();
                 break;
         }
         return result;

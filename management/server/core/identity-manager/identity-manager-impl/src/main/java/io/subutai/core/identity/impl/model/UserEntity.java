@@ -129,9 +129,9 @@ public class UserEntity implements User
     @Override
     public void setUserName( final String userName )
     {
-        Preconditions.checkArgument( !Strings.isNullOrEmpty( userName ) );
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( userName ) && !userName.trim().isEmpty() );
 
-        this.userName = userName.toLowerCase();
+        this.userName = userName.trim().toLowerCase();
     }
 
 
@@ -159,7 +159,9 @@ public class UserEntity implements User
     @Override
     public void setPassword( final String password )
     {
-        this.password = password;
+        Preconditions.checkArgument( !Strings.isNullOrEmpty( password ) && !password.trim().isEmpty() );
+
+        this.password = password.trim();
     }
 
 
@@ -348,5 +350,12 @@ public class UserEntity implements User
     public boolean isIdentityValid()
     {
         return validDate == null || System.currentTimeMillis() <= validDate.getTime();
+    }
+
+
+    @Override
+    public boolean isHubUser()
+    {
+        return type == UserType.HUB.getId();
     }
 }

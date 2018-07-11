@@ -1,7 +1,6 @@
 package io.subutai.core.registration.impl.entity;
 
 
-import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -28,6 +27,11 @@ import io.subutai.common.host.HostInfo;
 import io.subutai.common.host.HostInterface;
 import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
+import io.subutai.common.host.Quota;
+import io.subutai.common.peer.ContainerId;
+import io.subutai.common.peer.LocalPeer;
+import io.subutai.common.peer.PeerException;
+import io.subutai.common.util.ServiceLocator;
 import io.subutai.core.registration.api.ResourceHostRegistrationStatus;
 import io.subutai.core.registration.api.service.ContainerInfo;
 
@@ -59,6 +63,10 @@ public class ContainerInfoImpl implements ContainerInfo
     @Expose
     private Integer vlan;
 
+    @Column( name = "envId" )
+    @Expose
+    private String envId;
+
     @Column( name = "gateway" )
     @Expose
     private String gateway = "";
@@ -69,10 +77,8 @@ public class ContainerInfoImpl implements ContainerInfo
 
 
     @JoinColumn( name = "net_interfaces" )
-    @OneToMany( orphanRemoval = true,
-            targetEntity = HostInterfaceImpl.class,
-            cascade = CascadeType.ALL,
-            fetch = FetchType.EAGER )
+    @OneToMany( orphanRemoval = true, targetEntity = HostInterfaceImpl.class, cascade = CascadeType.ALL, fetch =
+            FetchType.EAGER )
     @Expose
     private Set<HostInterface> netHostInterfaces = new HashSet<>();
 
@@ -113,6 +119,7 @@ public class ContainerInfoImpl implements ContainerInfo
         this.status = hostInfo.getStatus();
         this.publicKey = hostInfo.getPublicKey();
         this.gateway = hostInfo.getGateway();
+        this.envId = hostInfo.getEnvId();
         if ( arch == null )
         {
             arch = HostArchitecture.AMD64;
@@ -121,6 +128,26 @@ public class ContainerInfoImpl implements ContainerInfo
         {
             this.netHostInterfaces.add( new HostInterfaceImpl( anHostInterface ) );
         }
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        try
+        {
+            return getLocalPeer().getRawQuota( new ContainerId( id ) );
+        }
+        catch ( PeerException e )
+        {
+            return null;
+        }
+    }
+
+
+    protected LocalPeer getLocalPeer()
+    {
+        return ServiceLocator.lookup( LocalPeer.class );
     }
 
 
@@ -142,8 +169,6 @@ public class ContainerInfoImpl implements ContainerInfo
     {
         this.status = status;
     }
-
-
 
 
     public void setRequestedHost( final RequestedHostImpl requestedHost )
@@ -200,15 +225,11 @@ public class ContainerInfoImpl implements ContainerInfo
     }
 
 
-
-
     @Override
     public String getPublicKey()
     {
         return publicKey;
     }
-
-
 
 
     @Override
@@ -219,12 +240,17 @@ public class ContainerInfoImpl implements ContainerInfo
 
 
     @Override
+    public String getEnvId()
+    {
+        return envId;
+    }
+
+
+    @Override
     public String getGateway()
     {
         return gateway;
     }
-
-
 
 
     @Override
@@ -232,7 +258,6 @@ public class ContainerInfoImpl implements ContainerInfo
     {
         return hostname.compareTo( o.getHostname() );
     }
-
 
 
     @Override
@@ -264,14 +289,8 @@ public class ContainerInfoImpl implements ContainerInfo
     @Override
     public String toString()
     {
-        return "ContainerInfoImpl{" +
-                "id='" + id + '\'' +
-                ", publicKey='" + publicKey + '\'' +
-                ", hostname='" + hostname + '\'' +
-                ", vlan=" + vlan +
-                ", templateName='" + templateName + '\'' +
-                ", hostInterfaces=" + netHostInterfaces +
-                ", arch=" + arch +
-                '}';
+        return "ContainerInfoImpl{" + "id='" + id + '\'' + ", publicKey='" + publicKey + '\'' + ", hostname='"
+                + hostname + '\'' + ", vlan=" + vlan + ", templateName='" + templateName + '\'' + ", hostInterfaces="
+                + netHostInterfaces + ", arch=" + arch + '}';
     }
 }

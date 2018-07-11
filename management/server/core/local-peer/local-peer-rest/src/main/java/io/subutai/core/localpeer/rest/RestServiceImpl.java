@@ -5,41 +5,42 @@ import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Response;
 
 import org.bouncycastle.openpgp.PGPPublicKeyRing;
-import org.osgi.framework.Bundle;
-import org.osgi.framework.BundleContext;
-import org.osgi.framework.FrameworkUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import org.apache.karaf.bundle.core.BundleState;
-import org.apache.karaf.bundle.core.BundleStateService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import io.subutai.common.environment.Nodes;
+import io.subutai.common.environment.PeerTemplatesUploadProgress;
 import io.subutai.common.host.HostId;
-import io.subutai.common.host.HostInterfaces;
 import io.subutai.common.metric.ResourceHostMetrics;
 import io.subutai.common.network.NetworkResourceImpl;
 import io.subutai.common.network.UsedNetworkResources;
 import io.subutai.common.peer.AlertEvent;
 import io.subutai.common.peer.EnvironmentId;
+import io.subutai.common.peer.HostNotFoundException;
 import io.subutai.common.peer.LocalPeer;
 import io.subutai.common.peer.PeerId;
 import io.subutai.common.peer.PeerInfo;
+import io.subutai.common.peer.ResourceHost;
 import io.subutai.common.protocol.P2PConfig;
 import io.subutai.common.protocol.P2PCredentials;
 import io.subutai.common.protocol.P2pIps;
 import io.subutai.common.security.PublicKeyContainer;
 import io.subutai.common.security.crypto.pgp.PGPKeyUtil;
 import io.subutai.common.security.relation.RelationLinkDto;
+import io.subutai.common.util.CollectionUtil;
 import io.subutai.common.util.DateTimeParam;
-import io.subutai.common.util.ServiceLocator;
+import io.subutai.common.util.JsonUtil;
 
 
 public class RestServiceImpl implements RestService
 {
     private static final Logger LOGGER = LoggerFactory.getLogger( RestServiceImpl.class );
+    private static final String ERROR_KEY = "ERROR";
+    private static final String RESULT_KEY = "RESULT";
+
     private final LocalPeer localPeer;
 
 
@@ -70,36 +71,11 @@ public class RestServiceImpl implements RestService
     @Override
     public Response isReady()
     {
-        boolean failed = false;
+        LocalPeer.State state = localPeer.getState();
 
-        boolean ready = true;
-
-        BundleContext ctx = FrameworkUtil.getBundle( RestServiceImpl.class ).getBundleContext();
-
-        BundleStateService bundleStateService = ServiceLocator.getServiceOrNull( BundleStateService.class );
-
-        Bundle[] bundles = ctx.getBundles();
-
-        for ( Bundle bundle : bundles )
-        {
-            if ( bundleStateService != null && bundleStateService.getState( bundle ) == BundleState.Failure )
-            {
-                failed = true;
-
-                break;
-            }
-
-            if ( !( ( bundle.getState() == Bundle.ACTIVE ) || ( bundle.getState() == Bundle.RESOLVED ) ) )
-            {
-                ready = false;
-
-                break;
-            }
-        }
-
-
-        return failed ? Response.serverError().build() :
-               ready ? Response.ok().build() : Response.status( Response.Status.SERVICE_UNAVAILABLE ).build();
+        return state == LocalPeer.State.FAILED ? Response.serverError().build() :
+               state == LocalPeer.State.READY ? Response.ok().build() :
+               Response.status( Response.Status.SERVICE_UNAVAILABLE ).build();
     }
 
 
@@ -220,21 +196,6 @@ public class RestServiceImpl implements RestService
 
 
     @Override
-    public HostInterfaces getNetworkInterfaces()
-    {
-        try
-        {
-            return localPeer.getInterfaces();
-        }
-        catch ( Exception e )
-        {
-            LOGGER.error( e.getMessage(), e );
-            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
-        }
-    }
-
-
-    @Override
     public ResourceHostMetrics getResources()
     {
         try
@@ -272,6 +233,25 @@ public class RestServiceImpl implements RestService
             Preconditions.checkNotNull( networkResource );
 
             return localPeer.reserveNetworkResource( networkResource );
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( e.getMessage(), e );
+            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
+        }
+    }
+
+
+    @Override
+    public Boolean canAccommodate( final Nodes nodes )
+    {
+        try
+        {
+            Preconditions.checkArgument(
+                    nodes != null && ( !CollectionUtil.isMapEmpty( nodes.getQuotas() ) || !CollectionUtil
+                            .isCollectionEmpty( nodes.getNodes() ) ), "Invalid nodes" );
+
+            return localPeer.canAccommodate( nodes );
         }
         catch ( Exception e )
         {
@@ -348,6 +328,32 @@ public class RestServiceImpl implements RestService
 
 
     @Override
+    public Response updateResourceHost( final String resourceHostId )
+    {
+        try
+        {
+            Preconditions.checkNotNull( resourceHostId );
+
+            ResourceHost resourceHost = localPeer.getResourceHostById( resourceHostId );
+
+            return resourceHost.update() ? Response.ok().build() : Response.noContent().build();
+        }
+        catch ( HostNotFoundException he )
+        {
+            return Response.status( Response.Status.NOT_FOUND )
+                           .entity( JsonUtil.toJson( ERROR_KEY, "Resource host not found" ) ).build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( "Error updating resource host", e );
+
+            return Response.serverError().entity(
+                    JsonUtil.toJson( ERROR_KEY, e.getMessage() == null ? "Internal error" : e.getMessage() ) ).build();
+        }
+    }
+
+
+    @Override
     public Response putAlert( final AlertEvent alertEvent )
     {
         try
@@ -408,6 +414,26 @@ public class RestServiceImpl implements RestService
             Preconditions.checkNotNull( peerId );
 
             return Response.ok( localPeer.getResourceLimits( peerId ) ).build();
+        }
+        catch ( Exception e )
+        {
+            LOGGER.error( e.getMessage(), e );
+            throw new WebApplicationException( Response.serverError().entity( e.getMessage() ).build() );
+        }
+    }
+
+
+    @Override
+    public Response getTemplateUploadProgress( final String templateName )
+    {
+        try
+        {
+            Preconditions.checkNotNull( templateName );
+
+            PeerTemplatesUploadProgress uploadProgress = localPeer.getTemplateUploadProgress( templateName );
+
+            return uploadProgress.getTemplatesUploadProgress().isEmpty() ? Response.ok().build() :
+                   Response.ok( JsonUtil.toJson( uploadProgress ) ).build();
         }
         catch ( Exception e )
         {

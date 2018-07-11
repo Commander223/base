@@ -1,24 +1,35 @@
 package io.subutai.common.protocol;
 
 
-import java.util.Set;
-
-import com.google.gson.annotations.SerializedName;
-
-import io.subutai.common.host.HostArchitecture;
-
-
 public class Template
 {
     private String id;
-    private String name;
+    private String md5;
     private long size;
-    @SerializedName( "owner" )
-    private Set<String> owners;
-    private String parent;
+    private String name;
     private String version;
-    private String filename;
-    private HostArchitecture architecture;
+    private String owner;
+    private String parent;
+
+
+    public Template( final String id, final String md5, final long size, final String name, final String version,
+                     final String parent )
+    {
+        this.id = id;
+        this.md5 = md5;
+        this.size = size;
+        this.name = name;
+        this.version = version;
+        this.parent = parent;
+    }
+
+
+    @Override
+    public String toString()
+    {
+        return "{" + "id='" + id + '\'' + ", md5='" + md5 + '\'' + ", size=" + size + ", name='" + name + '\''
+                + ", version='" + version + '\'' + ", owner='" + owner + '\'' + ", parent='" + parent + '\'' + '}';
+    }
 
 
     public String getId()
@@ -27,9 +38,9 @@ public class Template
     }
 
 
-    public String getName()
+    public String getMd5()
     {
-        return name;
+        return md5;
     }
 
 
@@ -39,15 +50,9 @@ public class Template
     }
 
 
-    public Set<String> getOwners()
+    public String getName()
     {
-        return owners;
-    }
-
-
-    public String getParent()
-    {
-        return parent;
+        return name;
     }
 
 
@@ -57,14 +62,14 @@ public class Template
     }
 
 
-    public String getFilename()
+    public String getOwner()
     {
-        return filename;
+        return owner;
     }
 
 
-    public HostArchitecture getArchitecture()
+    public String getParent()
     {
-        return architecture;
+        return parent;
     }
 }

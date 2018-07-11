@@ -10,11 +10,8 @@ import org.slf4j.LoggerFactory;
 
 import io.subutai.common.util.JsonUtil;
 import io.subutai.common.util.StringUtil;
-import io.subutai.core.executor.api.CommandExecutor;
 import io.subutai.core.hubmanager.api.HubManager;
 import io.subutai.core.hubmanager.rest.pojo.RegistrationPojo;
-import io.subutai.core.identity.api.IdentityManager;
-import io.subutai.core.peer.api.PeerManager;
 
 
 public class RestServiceImpl implements RestService
@@ -23,21 +20,9 @@ public class RestServiceImpl implements RestService
 
     private HubManager hubManager;
 
-    private CommandExecutor commandExecutor;
-
-    private PeerManager peerManager;
-
-    private IdentityManager identityManager = null;
-
-
-    public void setIntegration( HubManager hubManager )
-    {
-        this.hubManager = hubManager;
-    }
-
 
     @Override
-    public Response sendHeartbeat( String hubIp )
+    public Response sendHeartbeat()
     {
         try
         {
@@ -64,11 +49,11 @@ public class RestServiceImpl implements RestService
 
 
     @Override
-    public Response register( final String hubIp, final String email, final String password, final String peerName )
+    public Response register( final String email, final String password, final String peerName, final String peerScope )
     {
         try
         {
-            hubManager.registerPeer( hubIp, email, password, StringUtil.removeHtml( peerName ) );
+            hubManager.registerPeer( email, password, StringUtil.removeHtml( peerName ), peerScope );
 
             return Response.ok().build();
         }
@@ -81,23 +66,6 @@ public class RestServiceImpl implements RestService
                         entity( JsonUtil.GSON.toJson( "You don't have permission to perform this operation" ) ).build();
             }
 
-            LOG.error( e.getMessage() );
-            return Response.status( Response.Status.INTERNAL_SERVER_ERROR ).
-                    entity( JsonUtil.GSON.toJson( e.getMessage() ) ).build();
-        }
-    }
-
-
-    @Override
-    public Response sendRHConfigurations( final String hubIp )
-    {
-        try
-        {
-            hubManager.sendResourceHostInfo();
-            return Response.ok().build();
-        }
-        catch ( Exception e )
-        {
             LOG.error( e.getMessage() );
             return Response.status( Response.Status.INTERNAL_SERVER_ERROR ).
                     entity( JsonUtil.GSON.toJson( e.getMessage() ) ).build();
@@ -150,7 +118,7 @@ public class RestServiceImpl implements RestService
     {
         RegistrationPojo pojo = new RegistrationPojo();
 
-        if ( hubManager.isRegistered() )
+        if ( hubManager.isRegisteredWithHub() )
         {
             pojo.setOwnerId( hubManager.getHubConfiguration().getOwnerId() );
 
@@ -159,7 +127,9 @@ public class RestServiceImpl implements RestService
             pojo.setPeerName( hubManager.getPeerName() );
         }
 
-        pojo.setRegisteredToHub( hubManager.isRegistered() );
+        pojo.setRegisteredToHub( hubManager.isRegisteredWithHub() );
+
+        pojo.setHubReachable( hubManager.isHubReachable() );
 
         String hubRegistrationInfo = JsonUtil.GSON.toJson( pojo );
 
@@ -167,83 +137,8 @@ public class RestServiceImpl implements RestService
     }
 
 
-    @Override
-    public Response upSite()
+    public void setIntegration( HubManager hubManager )
     {
-
-        Thread thread = new Thread()
-        {
-            @Override
-            public void run()
-            {
-                VEHServiceUtil.upSite( peerManager, identityManager );
-            }
-        };
-
-        thread.start();
-
-        return Response.status( Response.Status.OK ).build();
-    }
-
-
-    @Override
-    public Response downSite()
-    {
-
-        Thread thread = new Thread()
-        {
-            @Override
-            public void run()
-            {
-                VEHServiceUtil.downSite( peerManager, identityManager );
-            }
-        };
-
-        thread.start();
-
-        return Response.status( Response.Status.OK ).build();
-    }
-
-
-    @Override
-    public Response checksum()
-    {
-        return VEHServiceUtil.getChecksum( peerManager );
-    }
-
-
-    public CommandExecutor getCommandExecutor()
-    {
-        return commandExecutor;
-    }
-
-
-    public void setCommandExecutor( final CommandExecutor commandExecutor )
-    {
-        this.commandExecutor = commandExecutor;
-    }
-
-
-    public PeerManager getPeerManager()
-    {
-        return peerManager;
-    }
-
-
-    public void setPeerManager( final PeerManager peerManager )
-    {
-        this.peerManager = peerManager;
-    }
-
-
-    public IdentityManager getIdentityManager()
-    {
-        return identityManager;
-    }
-
-
-    public void setIdentityManager( final IdentityManager identityManager )
-    {
-        this.identityManager = identityManager;
+        this.hubManager = hubManager;
     }
 }

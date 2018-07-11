@@ -10,6 +10,7 @@ import io.subutai.common.host.HostInfo;
 import io.subutai.common.host.HostInterface;
 import io.subutai.common.host.HostInterfaceModel;
 import io.subutai.common.host.HostInterfaces;
+import io.subutai.common.host.Quota;
 import io.subutai.core.registration.api.ResourceHostRegistrationStatus;
 import io.subutai.core.registration.api.service.ContainerInfo;
 
@@ -18,8 +19,9 @@ public class ContainerInfoJson implements ContainerInfo
 {
     private String id;
     private String hostname;
-    private String containerName;
+    private String name;
     private Integer vlan;
+    private String envId;
     private String templateName;
     private Set<HostInterfaceJson> interfaces = new HashSet<>();
     private HostArchitecture arch;
@@ -27,19 +29,14 @@ public class ContainerInfoJson implements ContainerInfo
     private String gateway;
     private ResourceHostRegistrationStatus status = ResourceHostRegistrationStatus.REQUESTED;
     private ContainerHostState state;
+    private Quota quota;
 
 
-    public ContainerInfoJson()
-    {
-        arch = HostArchitecture.AMD64;
-    }
-
-
-    public ContainerInfoJson( ContainerInfo hostInfo )
+    ContainerInfoJson( ContainerInfo hostInfo )
     {
         this.id = hostInfo.getId();
         this.hostname = hostInfo.getHostname();
-        this.containerName = hostInfo.getContainerName();
+        this.name = hostInfo.getContainerName();
         this.templateName = hostInfo.getTemplateName();
         this.vlan = hostInfo.getVlan();
         this.arch = hostInfo.getArch();
@@ -47,6 +44,8 @@ public class ContainerInfoJson implements ContainerInfo
         this.status = hostInfo.getStatus();
         this.gateway = hostInfo.getGateway();
         this.state = hostInfo.getState();
+        this.quota = hostInfo.getRawQuota();
+        this.envId = hostInfo.getEnvId();
         if ( arch == null )
         {
             arch = HostArchitecture.AMD64;
@@ -55,6 +54,13 @@ public class ContainerInfoJson implements ContainerInfo
         {
             this.interfaces.add( new HostInterfaceJson( anHostInterface ) );
         }
+    }
+
+
+    @Override
+    public Quota getRawQuota()
+    {
+        return quota;
     }
 
 
@@ -75,7 +81,7 @@ public class ContainerInfoJson implements ContainerInfo
     @Override
     public String getContainerName()
     {
-        return containerName;
+        return name;
     }
 
 
@@ -84,7 +90,6 @@ public class ContainerInfoJson implements ContainerInfo
     {
         return gateway;
     }
-
 
 
     @Override
@@ -125,7 +130,6 @@ public class ContainerInfoJson implements ContainerInfo
     }
 
 
-
     @Override
     public Integer getVlan()
     {
@@ -133,6 +137,11 @@ public class ContainerInfoJson implements ContainerInfo
     }
 
 
+    @Override
+    public String getEnvId()
+    {
+        return envId;
+    }
 
 
     @Override
@@ -142,15 +151,11 @@ public class ContainerInfoJson implements ContainerInfo
     }
 
 
-
-
     @Override
     public ResourceHostRegistrationStatus getStatus()
     {
         return status;
     }
-
-
 
 
     @Override
@@ -189,11 +194,7 @@ public class ContainerInfoJson implements ContainerInfo
     @Override
     public String toString()
     {
-        return "ContainerHostInfoModel{" +
-                "id='" + id + '\'' +
-                ", hostname='" + hostname + '\'' +
-                ", interfaces=" + interfaces +
-                ", arch=" + arch +
-                '}';
+        return "ContainerHostInfoModel{" + "id='" + id + '\'' + ", hostname='" + hostname + '\'' + ", interfaces="
+                + interfaces + ", arch=" + arch + '}';
     }
 }

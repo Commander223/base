@@ -16,7 +16,7 @@ import io.subutai.common.peer.Host;
 public class Commands
 {
 
-    public RequestBuilder getCurrentMetricCommand( String hostname )
+    public RequestBuilder getRhMetricCommand( String hostname )
     {
         return new RequestBuilder( String.format( "subutai info system %s", hostname ) );
     }
@@ -31,11 +31,5 @@ public class Commands
         return new RequestBuilder( String.format( "subutai metrics %s -s \"%s\" -e \"%s\"",
                 host instanceof ContainerHost ? ( ( ContainerHost ) host ).getContainerName() : host.getHostname(),
                 startTimestamp, endTimestamp ) );
-    }
-
-
-    public RequestBuilder getProcessResourceUsageCommand( String containerName, int pid )
-    {
-        return new RequestBuilder( String.format( "subutai monitor -i %s %s", pid, containerName ) );
     }
 }
